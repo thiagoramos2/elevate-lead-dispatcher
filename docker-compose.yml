@@ -1,5 +1,19 @@
 name: elevate-lead-dispatcher
 
+# Shared by api and worker. Demo values only; override through a local .env file.
+x-backend-env: &backend-env
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: postgresql://elevate:elevate@postgres:5432/elevate
+  REDIS_URL: redis://redis:6379
+  REPORTING_TIMEZONE: ${REPORTING_TIMEZONE:-America/Sao_Paulo}
+  CALLCENTER_WEBHOOK_SECRETS: ${CALLCENTER_WEBHOOK_SECRETS:-callcenter-a:dev-secret-a-0123456789abcdef0123456789,callcenter-b:dev-secret-b-0123456789abcdef0123456789,callcenter-c:dev-secret-c-0123456789abcdef0123456789}
+
+x-backend-build: &backend-build
+  context: .
+  dockerfile: apps/backend/Dockerfile
+  target: runtime
+
 services:
   postgres:
     image: postgres:18-alpine
@@ -46,6 +60,43 @@ services:
       postgres:
         condition: service_healthy
     restart: "no"
+
+  api:
+    build: *backend-build
+    command: ["node", "dist/api.js"]
+    environment:
+      <<: *backend-env
+      API_PORT: 3001
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      # The web container proxies /api, so exactly one hop of X-Forwarded-For is trusted.
+      TRUST_PROXY_HOPS: 1
+    ports:
+      - "3001:3001"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    build: *backend-build
+    command: ["node", "dist/worker.js"]
+    environment:
+      <<: *backend-env
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    # Scale horizontally: `docker compose up --scale worker=3`. Safe by design (ADR-0003).
+    restart: unless-stopped
 
 volumes:
   postgres-data:
