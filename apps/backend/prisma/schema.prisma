@@ -1,0 +1,250 @@
+// Data model — see docs/architecture.md §3 and §4.
+// Partial indexes, CHECK constraints and uuidv7() defaults that Prisma cannot express
+// are written by hand in the migration SQL.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum LeadStatus {
+  new
+  contacted
+  no_answer
+  callback
+  qualified
+  sale
+  refund
+  invalid
+
+  @@map("lead_status")
+}
+
+enum DistributionStatus {
+  pending
+  distributed
+  failed
+
+  @@map("distribution_status")
+}
+
+enum LeadEventOrigin {
+  system
+  webhook
+  operator
+
+  @@map("lead_event_origin")
+}
+
+enum UserRole {
+  admin
+  operator
+
+  @@map("user_role")
+}
+
+model Product {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  slug      String   @unique @db.VarChar(64)
+  name      String   @db.VarChar(120)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  funnels Funnel[]
+  leads   Lead[]
+
+  @@map("products")
+}
+
+model Funnel {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  slug      String   @db.VarChar(64)
+  name      String   @db.VarChar(120)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  leads   Lead[]
+
+  @@unique([productId, slug])
+  /// Target of the composite FK leads(funnel_id, product_id): a lead's funnel must belong to its product.
+  @@unique([id, productId])
+  @@map("funnels")
+}
+
+model Affiliate {
+  id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  externalRef String   @unique @map("external_ref") @db.VarChar(64)
+  name        String?  @db.VarChar(120)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  leads Lead[]
+
+  @@map("affiliates")
+}
+
+model CallCenter {
+  id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  slug      String   @unique @db.VarChar(64)
+  name      String   @db.VarChar(120)
+  /// Relative weight for the dispatcher. CHECK (weight > 0) in SQL.
+  weight    Int
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  leads         Lead[]
+  distributions Distribution[]
+  users         User[]
+  leadEvents    LeadEvent[]
+
+  @@map("call_centers")
+}
+
+/// Single-row table (CHECK id = 1) holding the dispatcher's global, gap-free cursor.
+/// Incremented with UPDATE ... RETURNING inside the distribution transaction (ADR-0003).
+model DispatcherState {
+  id            Int      @id @default(1) @db.SmallInt
+  cursor        BigInt   @default(0)
+  configVersion Int      @default(1) @map("config_version")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("dispatcher_state")
+}
+
+model Lead {
+  id                 String             @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  name               String             @db.VarChar(120)
+  email              String             @db.VarChar(254)
+  phone              String             @db.VarChar(32)
+  productId          String             @map("product_id") @db.Uuid
+  funnelId           String             @map("funnel_id") @db.Uuid
+  affiliateId        String?            @map("affiliate_id") @db.Uuid
+  source             String             @db.VarChar(64)
+  campaign           String?            @db.VarChar(255)
+  utmSource          String?            @map("utm_source") @db.VarChar(255)
+  utmMedium          String?            @map("utm_medium") @db.VarChar(255)
+  utmCampaign        String?            @map("utm_campaign") @db.VarChar(255)
+  utmContent         String?            @map("utm_content") @db.VarChar(255)
+  utmTerm            String?            @map("utm_term") @db.VarChar(255)
+  status             LeadStatus         @default(new)
+  statusChangedAt    DateTime           @default(now()) @map("status_changed_at") @db.Timestamptz(3)
+  distributionStatus DistributionStatus @default(pending) @map("distribution_status")
+  callCenterId       String?            @map("call_center_id") @db.Uuid
+  distributedAt      DateTime?          @map("distributed_at") @db.Timestamptz(3)
+  /// "client:<Idempotency-Key>" or "payload:<sha256>" (ADR-0004).
+  idempotencyKey     String             @unique @map("idempotency_key") @db.VarChar(300)
+  requestHash        String             @map("request_hash") @db.Char(64)
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product      Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  funnel       Funnel        @relation(fields: [funnelId, productId], references: [id, productId], onDelete: Restrict)
+  affiliate    Affiliate?    @relation(fields: [affiliateId], references: [id], onDelete: Restrict)
+  callCenter   CallCenter?   @relation(fields: [callCenterId], references: [id], onDelete: Restrict)
+  distribution Distribution?
+  events       LeadEvent[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)], map: "leads_created_at_id_idx")
+  @@index([callCenterId, createdAt(sort: Desc), id(sort: Desc)], map: "leads_call_center_created_at_idx")
+  @@index([status, createdAt(sort: Desc)], map: "leads_status_created_at_idx")
+  @@index([productId, funnelId, createdAt(sort: Desc)], map: "leads_product_funnel_created_at_idx")
+  @@map("leads")
+}
+
+/// Audit record of the dispatcher's decision. One per lead (UNIQUE lead_id).
+model Distribution {
+  id            String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  leadId        String   @unique @map("lead_id") @db.Uuid
+  callCenterId  String   @map("call_center_id") @db.Uuid
+  /// Global cursor value that selected the slot.
+  cursor        BigInt
+  configVersion Int      @map("config_version")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lead       Lead       @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  callCenter CallCenter @relation(fields: [callCenterId], references: [id], onDelete: Restrict)
+
+  @@map("distributions")
+}
+
+/// Append-only status history. Every received event is stored, applied or not.
+model LeadEvent {
+  id              String          @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  leadId          String          @map("lead_id") @db.Uuid
+  origin          LeadEventOrigin
+  callCenterId    String?         @map("call_center_id") @db.Uuid
+  actorUserId     String?         @map("actor_user_id") @db.Uuid
+  dedupKey        String          @map("dedup_key") @db.Char(64)
+  externalId      String?         @map("external_id") @db.VarChar(128)
+  fromStatus      LeadStatus?     @map("from_status")
+  toStatus        LeadStatus      @map("to_status")
+  occurredAt      DateTime        @map("occurred_at") @db.Timestamptz(3)
+  receivedAt      DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+  applied         Boolean
+  rejectionReason String?         @map("rejection_reason") @db.VarChar(32)
+  payload         Json?           @db.JsonB
+
+  lead       Lead        @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  callCenter CallCenter? @relation(fields: [callCenterId], references: [id], onDelete: Restrict)
+  actor      User?       @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([leadId, dedupKey])
+  @@index([leadId, occurredAt])
+  @@map("lead_events")
+}
+
+/// Transactional outbox (ADR-0002). Written with the lead, published by the worker relay.
+model OutboxEvent {
+  id          BigInt    @id @default(autoincrement())
+  type        String    @db.VarChar(64)
+  aggregateId String    @map("aggregate_id") @db.Uuid
+  payload     Json      @db.JsonB
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  availableAt DateTime  @default(now()) @map("available_at") @db.Timestamptz(3)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error")
+
+  @@map("outbox_events")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  email        String    @unique @db.VarChar(254)
+  passwordHash String    @map("password_hash")
+  role         UserRole
+  /// Required for operators, forbidden for admins (CHECK in SQL).
+  callCenterId String?   @map("call_center_id") @db.Uuid
+  failedLogins Int       @default(0) @map("failed_logins")
+  lockedUntil  DateTime? @map("locked_until") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  callCenter CallCenter? @relation(fields: [callCenterId], references: [id], onDelete: Restrict)
+  sessions   Session[]
+  leadEvents LeadEvent[]
+
+  @@map("users")
+}
+
+model Session {
+  /// sha256(token) in hex; the raw token only exists in the user's cookie.
+  tokenHash String   @id @map("token_hash") @db.Char(64)
+  userId    String   @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
