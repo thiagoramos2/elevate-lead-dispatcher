@@ -24,13 +24,13 @@
                                                      └───────────────────┘
 ```
 
-| Serviço | Responsabilidade | Depende de |
-|---|---|---|
-| `web` | Dashboard (Next.js 16 + Tailwind). Faz proxy de `/api/*` para a API, então o cookie de sessão fica no mesmo origin | api |
-| `api` | HTTP: ingestão de leads, webhook, auth, consultas e métricas. **Não publica na fila** | Postgres (obrigatório), Redis (só rate limit, *fail-open*) |
-| `worker` | Relay do outbox (Postgres → BullMQ) e consumidor de distribuição. Escala horizontalmente | Postgres, Redis |
-| `postgres` | Fonte da verdade: leads, distribuições, histórico, outbox, estado do dispatcher | — |
-| `redis` | Transporte de jobs (BullMQ) e contadores de rate limit. **Não é fonte da verdade** | — |
+| Serviço    | Responsabilidade                                                                                                   | Depende de                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `web`      | Dashboard (Next.js 16 + Tailwind). Faz proxy de `/api/*` para a API, então o cookie de sessão fica no mesmo origin | api                                                        |
+| `api`      | HTTP: ingestão de leads, webhook, auth, consultas e métricas. **Não publica na fila**                              | Postgres (obrigatório), Redis (só rate limit, _fail-open_) |
+| `worker`   | Relay do outbox (Postgres → BullMQ) e consumidor de distribuição. Escala horizontalmente                           | Postgres, Redis                                            |
+| `postgres` | Fonte da verdade: leads, distribuições, histórico, outbox, estado do dispatcher                                    | —                                                          |
+| `redis`    | Transporte de jobs (BullMQ) e contadores de rate limit. **Não é fonte da verdade**                                 | —                                                          |
 
 API e worker compartilham o mesmo pacote (`apps/backend`) e a mesma imagem Docker, com dois entrypoints. São processos separados, mas o código de domínio é um só.
 
@@ -56,17 +56,17 @@ O lead está persistido antes da resposta. Redis fora do ar não afeta a ingest�
 
 **Distribuição (worker: consumidor BullMQ)**
 7. Transação:
-   1. `SELECT ... FROM leads WHERE id = $1 FOR UPDATE`. Se já distribuído → no-op (idempotente).
-   2. `UPDATE dispatcher_state SET cursor = cursor + 1 RETURNING cursor, config_version`. A linha fica travada até o commit, o que serializa a decisão entre todos os workers.
-   3. Lê os call centers ativos e monta o escalonamento smooth WRR (função pura, cache por `config_version`).
-   4. `call_center = schedule[(cursor - 1) mod length]`.
-   5. `INSERT distributions` (`UNIQUE(lead_id)` é a última barreira contra duplicidade).
-   6. `UPDATE leads SET call_center_id, distribution_status = 'distributed', distributed_at`.
-8. Falha: retry com backoff exponencial. Esgotadas as tentativas, `distribution_status = 'failed'` e o motivo fica registrado.
+1. `SELECT ... FROM leads WHERE id = $1 FOR UPDATE`. Se já distribuído → no-op (idempotente).
+2. `UPDATE dispatcher_state SET cursor = cursor + 1 RETURNING cursor, config_version`. A linha fica travada até o commit, o que serializa a decisão entre todos os workers.
+3. Lê os call centers ativos e monta o escalonamento smooth WRR (função pura, cache por `config_version`).
+4. `call_center = schedule[(cursor - 1) mod length]`.
+5. `INSERT distributions` (`UNIQUE(lead_id)` é a última barreira contra duplicidade).
+6. `UPDATE leads SET call_center_id, distribution_status = 'distributed', distributed_at`.
+7. Falha: retry com backoff exponencial. Esgotadas as tentativas, `distribution_status = 'failed'` e o motivo fica registrado.
 
 **Atualização (webhook)**
 9. `POST /api/webhooks/callcenter`: verifica o HMAC do call center → Zod → transação:
-   `FOR UPDATE` no lead → confere que o lead pertence ao call center autenticado → insere o evento com `dedup_key` (`ON CONFLICT DO NOTHING` → duplicado) → aplica ou rejeita (fora de ordem / transição inválida) → histórico sempre gravado.
+`FOR UPDATE` no lead → confere que o lead pertence ao call center autenticado → insere o evento com `dedup_key` (`ON CONFLICT DO NOTHING` → duplicado) → aplica ou rejeita (fora de ordem / transição inválida) → histórico sempre gravado.
 
 ## 3. Modelo de dados
 
@@ -99,32 +99,32 @@ sessions        (token_hash PK, user_id FK, expires_at, created_at)
 
 ## 4. Índices
 
-| Índice | Consulta otimizada |
-|---|---|
-| `leads(created_at DESC, id DESC)` | listagem padrão (paginação keyset), "leads hoje", filtro por período |
-| `leads(call_center_id, created_at DESC, id DESC)` | listagem do OPERATOR (sempre escopada) e filtro por call center |
-| `leads(status, created_at DESC)` | contagem de vendas, filtro por status |
-| `leads(product_id, funnel_id, created_at DESC)` | filtro por produto/funil |
-| `leads(created_at) WHERE distribution_status <> 'distributed'` (parcial) | métrica "pendentes" e reconciliação de leads presos; o índice fica minúsculo |
-| `outbox_events(id) WHERE published_at IS NULL` (parcial) | o polling do relay lê só os pendentes |
-| `lead_events(lead_id, occurred_at)` | histórico de um lead |
-| UNIQUE: `leads(idempotency_key)`, `lead_events(lead_id, dedup_key)`, `distributions(lead_id)`, `funnels(product_id, slug)`, `products(slug)`, `affiliates(external_ref)` | idempotência e resolução na ingestão |
+| Índice                                                                                                                                                                   | Consulta otimizada                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `leads(created_at DESC, id DESC)`                                                                                                                                        | listagem padrão (paginação keyset), "leads hoje", filtro por período         |
+| `leads(call_center_id, created_at DESC, id DESC)`                                                                                                                        | listagem do OPERATOR (sempre escopada) e filtro por call center              |
+| `leads(status, created_at DESC)`                                                                                                                                         | contagem de vendas, filtro por status                                        |
+| `leads(product_id, funnel_id, created_at DESC)`                                                                                                                          | filtro por produto/funil                                                     |
+| `leads(created_at) WHERE distribution_status <> 'distributed'` (parcial)                                                                                                 | métrica "pendentes" e reconciliação de leads presos; o índice fica minúsculo |
+| `outbox_events(id) WHERE published_at IS NULL` (parcial)                                                                                                                 | o polling do relay lê só os pendentes                                        |
+| `lead_events(lead_id, occurred_at)`                                                                                                                                      | histórico de um lead                                                         |
+| UNIQUE: `leads(idempotency_key)`, `lead_events(lead_id, dedup_key)`, `distributions(lead_id)`, `funnels(product_id, slug)`, `products(slug)`, `affiliates(external_ref)` | idempotência e resolução na ingestão                                         |
 
 Sem índice em `source`/`utm_*`: a seletividade é baixa, e esses filtros sempre vêm combinados com o intervalo de `created_at`.
 
 ## 5. Riscos técnicos e mitigação
 
-| Risco | Onde | Mitigação |
-|---|---|---|
-| Corrida ler-e-atualizar na distribuição | worker | Cursor incrementado com `UPDATE ... RETURNING` sob row lock. A fila **não** resolve isso, porque N workers consomem em paralelo |
-| Distribuição duplicada (retry, reentrega do job, relay republicando) | worker | `FOR UPDATE` no lead + checagem de `distribution_status` + `UNIQUE(distributions.lead_id)` |
-| Lead gravado mas job nunca publicado (crash entre DB e Redis) | api | Transactional outbox: lead e evento na mesma transação |
-| Publicação duplicada (relay cai depois do `add` e antes do commit) | worker | Entrega *at-least-once* + `jobId` determinístico + consumidor idempotente |
-| Redis perde dados (restart sem persistência) | infra | AOF habilitado. O outbox mantém o histórico de publicação, e a reconciliação republica leads `pending` antigos |
-| Deadlock | worker/admin | Ordem fixa de locks: lead → `dispatcher_state`. A mudança de config trava só `dispatcher_state` |
-| Contenção no `dispatcher_state` | worker | Transação curta (~ms). O teto é medido e documentado em `scalability.md`, não presumido |
-| Webhook duplicado / fora de ordem / forjado | api | dedup_key único, `occurred_at` vs `status_changed_at` + máquina de estados, HMAC + janela de timestamp |
-| OPERATOR acessando lead alheio | api | Escopo aplicado no service a partir da sessão; 404 para lead de outro call center |
+| Risco                                                                | Onde         | Mitigação                                                                                                                       |
+| -------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Corrida ler-e-atualizar na distribuição                              | worker       | Cursor incrementado com `UPDATE ... RETURNING` sob row lock. A fila **não** resolve isso, porque N workers consomem em paralelo |
+| Distribuição duplicada (retry, reentrega do job, relay republicando) | worker       | `FOR UPDATE` no lead + checagem de `distribution_status` + `UNIQUE(distributions.lead_id)`                                      |
+| Lead gravado mas job nunca publicado (crash entre DB e Redis)        | api          | Transactional outbox: lead e evento na mesma transação                                                                          |
+| Publicação duplicada (relay cai depois do `add` e antes do commit)   | worker       | Entrega _at-least-once_ + `jobId` determinístico + consumidor idempotente                                                       |
+| Redis perde dados (restart sem persistência)                         | infra        | AOF habilitado. O outbox mantém o histórico de publicação, e a reconciliação republica leads `pending` antigos                  |
+| Deadlock                                                             | worker/admin | Ordem fixa de locks: lead → `dispatcher_state`. A mudança de config trava só `dispatcher_state`                                 |
+| Contenção no `dispatcher_state`                                      | worker       | Transação curta (~ms). O teto é medido e documentado em `scalability.md`, não presumido                                         |
+| Webhook duplicado / fora de ordem / forjado                          | api          | dedup_key único, `occurred_at` vs `status_changed_at` + máquina de estados, HMAC + janela de timestamp                          |
+| OPERATOR acessando lead alheio                                       | api          | Escopo aplicado no service a partir da sessão; 404 para lead de outro call center                                               |
 
 ## 6. Estrutura do repositório
 
