@@ -214,6 +214,8 @@ model OutboxEvent {
   attempts    Int       @default(0)
   lastError   String?   @map("last_error")
 
+  /// Reconciler: latest outbox event of a lead.
+  @@index([aggregateId, id(sort: Desc)], map: "outbox_events_aggregate_id_idx")
   @@map("outbox_events")
 }
 
