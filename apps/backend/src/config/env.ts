@@ -31,7 +31,9 @@ const envSchema = z.object({
   DB_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
   REDIS_URL: z.url({ protocol: /^rediss?$/ }),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  APP_ORIGIN: z.url(),
+  APP_ORIGIN: z.url().default('http://localhost:3000'),
+  /** Number of reverse proxies in front of the API whose X-Forwarded-For can be trusted. */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   REPORTING_TIMEZONE: z.string().default('America/Sao_Paulo'),
   CALLCENTER_WEBHOOK_SECRETS: webhookSecrets.default(new Map()),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
