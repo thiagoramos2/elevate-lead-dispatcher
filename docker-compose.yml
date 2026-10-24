@@ -1,0 +1,52 @@
+name: elevate-lead-dispatcher
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: elevate
+      POSTGRES_PASSWORD: elevate
+      POSTGRES_DB: elevate
+    ports:
+      - "5432:5432"
+    volumes:
+      # PG 18 images keep data under /var/lib/postgresql/<major>/docker.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elevate -d elevate"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    # AOF so queued jobs survive a restart; noeviction because BullMQ must never lose keys.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+      target: migrator
+    environment:
+      DATABASE_URL: postgresql://elevate:elevate@postgres:5432/elevate
+      SEED_DEMO_DATA: "true"
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin#Demo2026}
+      SEED_OPERATOR_PASSWORD: ${SEED_OPERATOR_PASSWORD:-Operator#Demo2026}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  postgres-data:
+  redis-data:
