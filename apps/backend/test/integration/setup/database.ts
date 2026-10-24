@@ -6,8 +6,8 @@ export function connectTestDatabase(poolMax = 20): Database {
 }
 
 /**
- * Empties every data table and rewinds the dispatcher cursor. Schema and the structural
- * dispatcher_state row are kept.
+ * Esvazia todas as tabelas de dados e volta o cursor do dispatcher para zero. O schema e a linha
+ * estrutural do dispatcher_state são mantidos.
  */
 export async function resetDatabase(db: Database): Promise<void> {
   await db.$executeRaw`
@@ -23,7 +23,7 @@ export interface Fixtures {
   readonly callCenters: { a: string; b: string; c: string };
 }
 
-/** Catalog matching the test statement: call centers A/B/C weighted 50/30/20. */
+/** Catálogo igual ao do enunciado: call centers A/B/C com pesos 50/30/20. */
 export async function seedFixtures(db: Database): Promise<Fixtures> {
   const nutralean = await db.product.create({ data: { slug: 'nutralean', name: 'NutraLean' } });
   const glucoshield = await db.product.create({

@@ -1,8 +1,8 @@
 import type { LoggerOptions } from 'pino';
 
 /**
- * PII and credentials never reach the logs. Paths cover request headers (Fastify serializers)
- * and the fields our own log calls may carry.
+ * Dados pessoais e credenciais nunca chegam aos logs. Os caminhos cobrem os headers da
+ * requisição (serializers do Fastify) e os campos que as nossas chamadas de log podem carregar.
  */
 const REDACTED_PATHS = [
   'req.headers.authorization',

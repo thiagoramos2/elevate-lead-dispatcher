@@ -8,11 +8,11 @@ export const DISTRIBUTION_REQUESTED = 'lead.distribution_requested';
 
 export interface CatalogMatch {
   readonly productId: string;
-  /** null when the product exists but has no active funnel with that slug. */
+  /** null quando o produto existe mas não tem funil ativo com esse slug. */
   readonly funnelId: string | null;
 }
 
-/** Resolves an active product and, within it, an active funnel. One round trip. */
+/** Resolve um produto ativo e, dentro dele, um funil ativo. Um único round trip. */
 export async function findCatalog(
   db: Database,
   productSlug: string,
@@ -28,9 +28,9 @@ export async function findCatalog(
 }
 
 /**
- * Returns the affiliate id, creating it on first sight. Concurrent first sightings are safe:
- * the loser of the unique-index race waits for the winner's commit, inserts nothing, and the
- * follow-up SELECT (a new snapshot under READ COMMITTED) sees the committed row.
+ * Retorna o id do affiliate, criando-o na primeira vez que aparece. Aparições simultâneas são
+ * seguras: quem perde a corrida no índice único espera o commit de quem ganhou, não insere
+ * nada, e o SELECT seguinte (um snapshot novo em READ COMMITTED) enxerga a linha commitada.
  */
 export async function ensureAffiliate(tx: Tx, externalRef: string): Promise<string> {
   const inserted = await tx.$queryRaw<{ id: string }[]>`
@@ -64,8 +64,9 @@ export interface NewLead {
 }
 
 /**
- * Inserts the lead unless its idempotency key already exists. Returns the new row, or null
- * on conflict. Never raises a unique violation, so the surrounding transaction stays usable.
+ * Insere o lead, a menos que a chave de idempotência já exista. Retorna a nova linha, ou null
+ * em caso de conflito. Nunca gera violação de unicidade, então a transação em volta continua
+ * utilizável.
  */
 export async function insertLeadIfAbsent(
   tx: Tx,
@@ -104,7 +105,7 @@ export async function findByIdempotencyKey(
     : null;
 }
 
-/** Initial history entry (status `new`) and the outbox event that will trigger distribution. */
+/** Entrada inicial do histórico (status `new`) e o evento de outbox que vai disparar a distribuição. */
 export async function recordLeadCreated(
   tx: Tx,
   lead: { id: string; createdAt: Date },

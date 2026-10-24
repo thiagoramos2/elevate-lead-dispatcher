@@ -5,11 +5,11 @@ import type { Database } from '../../infra/prisma.js';
 type Tx = Prisma.TransactionClient;
 
 /**
- * Lock order is part of the contract: a lead row first, then dispatcher_state.
- * Every transaction that takes both must take them in this order, or it can deadlock.
+ * A ordem dos locks faz parte do contrato: primeiro a linha do lead, depois o dispatcher_state.
+ * Toda transação que pega os dois precisa pegá-los nesta ordem, senão pode haver deadlock.
  */
 
-/** Locks the lead row for the rest of the transaction. */
+/** Trava a linha do lead até o fim da transação. */
 export async function lockLead(
   tx: Tx,
   leadId: string,
@@ -28,13 +28,13 @@ export async function lockLead(
 
 export interface DispatcherConfig {
   readonly configVersion: number;
-  /** Active call centers in a stable order (slug), so the schedule is reproducible. */
+  /** Call centers ativos numa ordem estável (slug), para o escalonamento ser reproduzível. */
   readonly callCenters: { id: string; weight: number }[];
 }
 
 /**
- * Reads the dispatcher configuration without locking. It may be stale by the time we take
- * the cursor; advanceCursor detects that through config_version (optimistic check).
+ * Lê a configuração do dispatcher sem lock. Ela pode estar desatualizada quando pegarmos o
+ * cursor; advanceCursor detecta isso pelo config_version (checagem otimista).
  */
 export async function readDispatcherConfig(tx: Tx): Promise<DispatcherConfig> {
   const rows = await tx.$queryRaw<
@@ -54,13 +54,13 @@ export async function readDispatcherConfig(tx: Tx): Promise<DispatcherConfig> {
 }
 
 /**
- * Atomically takes the next cursor value, only if the configuration is still the one we read.
+ * Pega atomicamente o próximo valor do cursor, só se a configuração ainda for a que lemos.
  *
- * The UPDATE holds the row lock until commit, so concurrent transactions queue here and each
- * one gets a distinct value. If an admin changed the configuration while we waited for the
- * lock, Postgres re-evaluates the WHERE on the new row version and nothing is updated: the
- * caller gets null and must re-read. On rollback the increment is undone, so the cursor is
- * gap-free (ADR-0003).
+ * O UPDATE segura o row lock até o commit, então as transações concorrentes fazem fila aqui e
+ * cada uma recebe um valor diferente. Se um admin mudou a configuração enquanto esperávamos o
+ * lock, o Postgres reavalia o WHERE sobre a nova versão da linha e nada é atualizado: quem
+ * chama recebe null e precisa reler. Em rollback o incremento é desfeito, então o cursor não
+ * tem buracos (ADR-0003).
  */
 export async function advanceCursor(tx: Tx, expectedConfigVersion: number): Promise<bigint | null> {
   const rows = await tx.$queryRaw<{ cursor: bigint }[]>`
@@ -70,7 +70,7 @@ export async function advanceCursor(tx: Tx, expectedConfigVersion: number): Prom
   return rows[0]?.cursor ?? null;
 }
 
-/** Writes the audit record and the lead's current assignment in a single statement. */
+/** Grava o registro de auditoria e a atribuição atual do lead num único statement. */
 export async function recordDistribution(
   tx: Tx,
   input: { leadId: string; callCenterId: string; cursor: bigint; configVersion: number },
@@ -88,7 +88,7 @@ export async function recordDistribution(
     WHERE leads.id = distribution.lead_id`;
 }
 
-/** Marks a lead whose distribution exhausted its retries. No-op if it got distributed meanwhile. */
+/** Marca um lead cuja distribuição esgotou as tentativas. No-op se ele foi distribuído nesse meio-tempo. */
 export async function markDistributionFailed(db: Database, leadId: string): Promise<void> {
   await db.$executeRaw`
     UPDATE leads SET distribution_status = 'failed', updated_at = now()

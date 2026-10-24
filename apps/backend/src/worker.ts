@@ -56,7 +56,7 @@ async function shutdown(signal: string) {
   logger.info({ signal }, 'shutting down: finishing active jobs');
   try {
     await Promise.all(tasks.map((task) => task.stop()));
-    // Waits for active jobs; anything not finished is picked up again via stalled-job checks.
+    // Espera os jobs ativos; o que não terminar é retomado pela checagem de stalled jobs.
     await worker.close();
     await queue.close();
     await db.$disconnect();

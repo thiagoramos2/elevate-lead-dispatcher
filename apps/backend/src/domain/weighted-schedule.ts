@@ -1,12 +1,12 @@
 /**
- * Smooth weighted round robin (the nginx algorithm), materialized as a fixed schedule.
+ * Smooth weighted round robin (o algoritmo do nginx), materializado como um escalonamento fixo.
  *
- * Weights 5/3/2 produce the 10-slot schedule A B C A A B A C B A: every window of
- * Σweights consecutive picks contains each target exactly `weight` times, and picks of
- * the heaviest target are interleaved instead of bursting.
+ * Os pesos 5/3/2 geram o escalonamento de 10 posições A B C A A B A C B A: toda janela de
+ * Σpesos escolhas consecutivas contém cada destino exatamente `weight` vezes, e as escolhas
+ * do destino mais pesado ficam intercaladas em vez de virem em rajada.
  *
- * The schedule is a pure function of the configuration. Which slot a lead takes is decided
- * by a global cursor kept in Postgres (see ADR-0003), so no process memory is involved.
+ * O escalonamento é uma função pura da configuração. A posição que cada lead ocupa é decidida
+ * por um cursor global guardado no Postgres (ver ADR-0003), sem usar memória de processo.
  */
 
 export interface WeightedTarget<Id> {
@@ -28,8 +28,8 @@ function gcd(a: number, b: number): number {
 }
 
 /**
- * Builds the schedule. Ties are broken by input order, so callers must pass targets in a
- * stable order (e.g. sorted by slug) to get a reproducible schedule.
+ * Monta o escalonamento. Empates são decididos pela ordem de entrada, então quem chama precisa
+ * passar os destinos numa ordem estável (ex.: por slug) para o resultado ser reproduzível.
  */
 export function buildWeightedSchedule<Id>(targets: readonly WeightedTarget<Id>[]): Id[] {
   if (targets.length === 0) {
@@ -54,7 +54,7 @@ export function buildWeightedSchedule<Id>(targets: readonly WeightedTarget<Id>[]
       if ((current[i] ?? 0) > (current[best] ?? 0)) best = i;
     }
     current[best] = (current[best] ?? 0) - total;
-    // biome-ignore lint/style/noNonNullAssertion: `best` is always a valid index of `targets`
+    // biome-ignore lint/style/noNonNullAssertion: `best` é sempre um índice válido de `targets`
     schedule.push(targets[best]!.id);
   }
 
@@ -62,8 +62,8 @@ export function buildWeightedSchedule<Id>(targets: readonly WeightedTarget<Id>[]
 }
 
 /**
- * Maps a 1-based global cursor to a schedule slot. Cursor n and n + schedule.length
- * always land on the same slot.
+ * Converte um cursor global (que começa em 1) numa posição do escalonamento. Os cursores n e
+ * n + schedule.length sempre caem na mesma posição.
  */
 export function pickSlot<Id>(schedule: readonly Id[], cursor: bigint): Id {
   if (schedule.length === 0) {
@@ -73,6 +73,6 @@ export function pickSlot<Id>(schedule: readonly Id[], cursor: bigint): Id {
     throw new RangeError(`cursor must be >= 1, got ${cursor}`);
   }
   const index = Number((cursor - 1n) % BigInt(schedule.length));
-  // biome-ignore lint/style/noNonNullAssertion: index is within bounds by construction
+  // biome-ignore lint/style/noNonNullAssertion: o índice está dentro dos limites por construção
   return schedule[index]!;
 }

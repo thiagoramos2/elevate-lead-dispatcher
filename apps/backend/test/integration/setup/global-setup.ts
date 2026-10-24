@@ -16,8 +16,8 @@ const backendDir = fileURLToPath(new URL('../../../', import.meta.url));
 const prismaCli = createRequire(import.meta.url).resolve('prisma/build/index.js');
 
 /**
- * Starts real Postgres 18 and Redis 8 containers once for the integration project and applies
- * the same migrations production uses. No mocks: locking and constraint behaviour is the point.
+ * Sobe containers reais de Postgres 18 e Redis 8 uma vez para o projeto de integração e aplica as
+ * mesmas migrations da produção. Sem mocks: o comportamento de locks e constraints é o que importa.
  */
 export default async function setup(project: TestProject) {
   let postgres: StartedPostgreSqlContainer | undefined;

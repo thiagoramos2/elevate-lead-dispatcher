@@ -35,8 +35,8 @@ async function waitFor(condition: () => Promise<boolean>, timeoutMs = 30_000): P
 }
 
 /**
- * End-to-end through real infrastructure: HTTP → Postgres (lead + outbox) → relay → Redis
- * (BullMQ) → several concurrent workers → Postgres (distribution).
+ * Ponta a ponta com infraestrutura real: HTTP → Postgres (lead + outbox) → relay → Redis
+ * (BullMQ) → vários workers concorrentes → Postgres (distribuição).
  */
 describe('distribution pipeline', () => {
   const db: Database = connectTestDatabase(40);
@@ -96,19 +96,19 @@ describe('distribution pipeline', () => {
     );
     expect(responses.map((r) => r.status)).toEqual(Array(100).fill(201));
 
-    // Workers first, relay second: jobs are consumed while they are still being published.
+    // Workers primeiro, relay depois: os jobs são consumidos enquanto ainda estão sendo publicados.
     startWorkers(4, 10);
     const relay = new OutboxRelay(db, queuePublisher(queue), silent);
     expect(await relay.drain()).toBe(100);
 
     await waitFor(async () => (await distributedCount()) === 100);
 
-    // No lost lead, no duplicate distribution, referential consistency.
+    // Nenhum lead perdido, nenhuma distribuição duplicada, consistência referencial.
     expect(await db.lead.count()).toBe(100);
     expect(await db.distribution.count()).toBe(100);
     expect(await db.outboxEvent.count({ where: { publishedAt: null } })).toBe(0);
 
-    // Exact weighted split and a gap-free cursor, despite 40 concurrent consumers.
+    // Divisão ponderada exata e cursor sem buracos, apesar de 40 consumidores concorrentes.
     const byCenter = await db.distribution.groupBy({ by: ['callCenterId'], _count: true });
     const count = (id: string) => byCenter.find((r) => r.callCenterId === id)?._count;
     expect([count(fx.callCenters.a), count(fx.callCenters.b), count(fx.callCenters.c)]).toEqual([
@@ -127,7 +127,7 @@ describe('distribution pipeline', () => {
     await new OutboxRelay(db, queuePublisher(queue), silent).drain();
     await waitFor(async () => (await distributedCount()) === 20);
 
-    // Simulate duplicate delivery of every lead with brand new job ids.
+    // Simula a entrega duplicada de todos os leads, com ids de job novos.
     const leads = await db.lead.findMany({ select: { id: true } });
     await queue.addBulk(
       leads.map((l) => ({
@@ -159,11 +159,11 @@ describe('distribution pipeline', () => {
     expect(pending.every((e) => e.publishedAt === null && e.attempts === 1)).toBe(true);
     expect(pending.every((e) => e.lastError?.includes('ECONNREFUSED'))).toBe(true);
     expect(pending.every((e) => e.availableAt.getTime() > Date.now())).toBe(true);
-    // Backed off: not retried immediately.
+    // Em backoff: não é retentado imediatamente.
     expect(await down.publishBatch()).toBe(0);
     expect((await db.outboxEvent.findFirstOrThrow()).attempts).toBe(1);
 
-    // Transport is back and the backoff elapsed.
+    // O transporte voltou e o backoff já passou.
     await db.$executeRaw`UPDATE outbox_events SET available_at = now()`;
     startWorkers(1, 5);
     expect(await new OutboxRelay(db, queuePublisher(queue), silent).drain()).toBe(5);
@@ -239,13 +239,13 @@ describe('distribution pipeline', () => {
     const { lead_id: leadId } = (
       await app.inject({ method: 'POST', url: '/api/leads', payload: validLead() })
     ).json();
-    // Published, then lost: marked published in Postgres but never present in Redis.
+    // Publicado e depois perdido: marcado como publicado no Postgres, mas nunca presente no Redis.
     await db.$executeRaw`UPDATE outbox_events SET published_at = now()`;
     await db.$executeRaw`UPDATE leads SET created_at = now() - interval '10 minutes'`;
 
     const reconciler = new DistributionReconciler(db, queue, silent, { stuckAfterSeconds: 300 });
     expect(await reconciler.requeueLostJobs()).toBe(1);
-    // Idempotent while the new event is still unpublished.
+    // Idempotente enquanto o evento novo ainda não foi publicado.
     expect(await reconciler.requeueLostJobs()).toBe(0);
 
     startWorkers(1, 1);
@@ -258,7 +258,7 @@ describe('distribution pipeline', () => {
 
   it('leaves recent pending leads and live jobs alone', async () => {
     await app.inject({ method: 'POST', url: '/api/leads', payload: validLead() });
-    await new OutboxRelay(db, queuePublisher(queue), silent).drain(); // job waiting, no worker
+    await new OutboxRelay(db, queuePublisher(queue), silent).drain(); // job em waiting, sem worker
     await db.$executeRaw`UPDATE leads SET created_at = now() - interval '10 minutes'`;
 
     const reconciler = new DistributionReconciler(db, queue, silent, { stuckAfterSeconds: 300 });

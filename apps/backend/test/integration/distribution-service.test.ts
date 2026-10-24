@@ -13,7 +13,7 @@ import {
 } from './setup/database.js';
 
 describe('distributeLead (Postgres concurrency)', () => {
-  // Pool larger than the number of concurrent calls, so they truly race in the database.
+  // Pool maior que o número de chamadas concorrentes, para elas disputarem de verdade no banco.
   const db: Database = connectTestDatabase(40);
   let fx: Fixtures;
 
@@ -72,7 +72,7 @@ describe('distributeLead (Postgres concurrency)', () => {
     const state = await db.dispatcherState.findUniqueOrThrow({ where: { id: 1 } });
     expect(state.cursor).toBe(100n);
 
-    // The lead row and the distribution record agree for every lead.
+    // A linha do lead e o registro de distribuição concordam para todos os leads.
     const mismatches = await db.$queryRaw<{ n: bigint }[]>`
       SELECT count(*) AS n FROM leads l JOIN distributions d ON d.lead_id = l.id
       WHERE l.call_center_id <> d.call_center_id OR l.distribution_status <> 'distributed'`;
@@ -103,7 +103,7 @@ describe('distributeLead (Postgres concurrency)', () => {
     expect(outcomes.filter((o) => o.kind === 'distributed')).toHaveLength(1);
     expect(outcomes.filter((o) => o.kind === 'already_distributed')).toHaveLength(19);
     expect(await db.distribution.count()).toBe(1);
-    // Replays do not consume cursor values.
+    // Replays não consomem valores do cursor.
     expect((await db.dispatcherState.findUniqueOrThrow({ where: { id: 1 } })).cursor).toBe(1n);
   });
 
@@ -126,14 +126,14 @@ describe('distributeLead (Postgres concurrency)', () => {
 
     for (const id of leadIds) await distributeLead(db, id);
 
-    // B:C = 30:20 = 3:2 → 6 and 4 out of 10.
+    // B:C = 30:20 = 3:2 → 6 e 4 de 10.
     expect(await countsByCallCenter()).toEqual({ a: 0, b: 6, c: 4 });
   });
 
   it('stays consistent when the configuration changes in the middle of a burst', async () => {
     const leadIds = await createLeads(60);
 
-    // The admin transaction from ADR-0003: lock state, change weights, bump version, reset cursor.
+    // A transação de admin do ADR-0003: trava o estado, muda pesos, incrementa a versão, zera o cursor.
     const changeConfig = () =>
       db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT 1 FROM dispatcher_state WHERE id = 1 FOR UPDATE`;
@@ -151,7 +151,7 @@ describe('distributeLead (Postgres concurrency)', () => {
     expect(distributions).toHaveLength(60);
     expect(new Set(distributions.map((d) => d.leadId)).size).toBe(60);
 
-    // Within each configuration version the cursor is gap-free and starts at 1.
+    // Dentro de cada versão de configuração o cursor não tem buracos e começa em 1.
     for (const version of new Set(distributions.map((d) => d.configVersion))) {
       const cursors = distributions
         .filter((d) => d.configVersion === version)
@@ -159,7 +159,7 @@ describe('distributeLead (Postgres concurrency)', () => {
         .sort((x, y) => x - y);
       expect(cursors).toEqual(Array.from({ length: cursors.length }, (_, i) => i + 1));
     }
-    // After the change, C (deactivated) never receives a lead.
+    // Depois da mudança, C (desativado) nunca recebe lead.
     const afterChange = distributions.filter((d) => d.configVersion === 2);
     expect(afterChange.some((d) => d.callCenterId === fx.callCenters.c)).toBe(false);
   });

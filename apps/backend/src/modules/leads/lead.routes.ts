@@ -20,7 +20,7 @@ export const leadRoutes: FastifyPluginAsyncZod<{ db: Database }> = async (app, {
         description:
           'Validates and stores the lead, then queues it for distribution. Retries are idempotent: ' +
           'send an Idempotency-Key header, or identical payloads are deduplicated by content hash.',
-        // Loose: other headers must pass through untouched.
+        // Loose: os outros headers precisam passar intactos.
         headers: z.looseObject({ [IDEMPOTENCY_KEY_HEADER]: idempotencyKeySchema.optional() }),
         body: createLeadSchema,
         response: {

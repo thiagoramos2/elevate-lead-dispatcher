@@ -1,20 +1,20 @@
 import { isValidPhoneNumber, parsePhoneNumberWithError } from 'libphonenumber-js';
 import { z } from 'zod';
 
-/** Catalog identifiers (product, funnel) are lowercase slugs. Existence is checked by the API. */
+/** Identificadores do catálogo (produto, funil) são slugs minúsculos. A existência é checada pela API. */
 const slug = z
   .string()
   .trim()
   .toLowerCase()
   .regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, 'must be a slug: lowercase letters, digits, "-" or "_"');
 
-/** Free-form tracking values (campaign names, ad ids). Bounded, no control characters. */
+/** Valores livres de tracking (nomes de campanha, ids de anúncio). Tamanho limitado, sem caracteres de controle. */
 const trackingValue = z
   .string()
   .trim()
   .min(1)
   .max(255)
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejeitar caracteres de controle é exatamente o objetivo
   .regex(/^[^\u0000-\u001f\u007f]*$/, 'must not contain control characters');
 
 const phone = z
@@ -37,13 +37,13 @@ export const utmSchema = z
   .describe('UTM parameters. Unknown keys are rejected.');
 
 /**
- * Payload accepted by POST /api/leads.
- * Unknown top-level keys are stripped (landing pages often send extra form fields);
- * the `utm` object is strict because its shape is a fixed standard.
+ * Payload aceito pelo POST /api/leads.
+ * Chaves desconhecidas no nível raiz são descartadas (landing pages costumam enviar campos
+ * extras do formulário); o objeto `utm` é estrito porque o formato dele é um padrão fixo.
  */
 export const createLeadSchema = z.object({
   name: z.string().trim().min(2).max(120),
-  // Normalize before validating: format checks run before chained transforms in Zod.
+  // Normaliza antes de validar: no Zod, as checagens de formato rodam antes das transformações encadeadas.
   email: z.string().trim().toLowerCase().pipe(z.email().max(254)),
   phone,
   product: slug,

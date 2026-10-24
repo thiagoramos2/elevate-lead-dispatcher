@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const MIN_WEBHOOK_SECRET_LENGTH = 32;
 
-/** "slug:secret,slug:secret" → Map<slug, secret>. Secrets never live in the database. */
+/** "slug:segredo,slug:segredo" → Map<slug, segredo>. Os segredos nunca ficam no banco. */
 const webhookSecrets = z.string().transform((raw, ctx) => {
   const secrets = new Map<string, string>();
   for (const pair of raw
@@ -32,7 +32,7 @@ const envSchema = z.object({
   REDIS_URL: z.url({ protocol: /^rediss?$/ }),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   APP_ORIGIN: z.url().default('http://localhost:3000'),
-  /** Number of reverse proxies in front of the API whose X-Forwarded-For can be trusted. */
+  /** Quantidade de proxies reversos na frente da API cujo X-Forwarded-For é confiável. */
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   REPORTING_TIMEZONE: z.string().default('America/Sao_Paulo'),
   CALLCENTER_WEBHOOK_SECRETS: webhookSecrets.default(new Map()),
@@ -41,7 +41,7 @@ const envSchema = z.object({
 
 export type AppConfig = z.output<typeof envSchema>;
 
-/** Fails fast at boot with every invalid variable listed, without echoing their values. */
+/** Falha já na inicialização listando todas as variáveis inválidas, sem exibir os valores. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {

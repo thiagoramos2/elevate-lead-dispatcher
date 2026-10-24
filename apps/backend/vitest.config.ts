@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
-// Tests import the contracts source directly, so they never run against a stale build.
+// Os testes importam o código-fonte do contracts direto, para nunca rodarem contra um build desatualizado.
 const alias = {
   '@elevate/contracts': fileURLToPath(
     new URL('../../packages/contracts/src/index.ts', import.meta.url),
@@ -26,8 +26,8 @@ export default defineConfig({
           include: ['test/integration/**/*.test.ts'],
           environment: 'node',
           globalSetup: ['test/integration/setup/global-setup.ts'],
-          // One Postgres and one Redis are shared by all files; files run one at a time and
-          // each starts from a clean state. Concurrency is exercised *inside* the tests.
+          // Um Postgres e um Redis compartilhados por todos os arquivos; os arquivos rodam um de
+          // cada vez e cada um parte de um estado limpo. A concorrência é exercitada *dentro* dos testes.
           fileParallelism: false,
           testTimeout: 30_000,
           hookTimeout: 120_000,

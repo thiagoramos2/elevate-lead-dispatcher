@@ -12,7 +12,7 @@ export function createDatabase({ url, poolMax }: DatabaseOptions): Database {
   const adapter = new PrismaPg({
     connectionString: url,
     max: poolMax,
-    // Bound how long a request can wait for a connection or hold a lock-waiting statement.
+    // Limita quanto tempo uma requisição pode esperar por conexão ou manter um statement esperando lock.
     connectionTimeoutMillis: 5_000,
     statement_timeout: 10_000,
   });

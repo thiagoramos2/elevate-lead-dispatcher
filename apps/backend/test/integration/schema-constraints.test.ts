@@ -8,8 +8,8 @@ import {
 } from './setup/database.js';
 
 /**
- * The database is the last line of defence. These tests prove the invariants hold even if
- * application code is wrong, by writing invalid rows directly.
+ * O banco é a última linha de defesa. Estes testes provam que os invariantes valem mesmo que o
+ * código da aplicação esteja errado, gravando linhas inválidas direto no banco.
  */
 describe('schema constraints', () => {
   const db: Database = connectTestDatabase();

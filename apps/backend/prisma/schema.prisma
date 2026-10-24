@@ -1,6 +1,6 @@
-// Data model — see docs/architecture.md §3 and §4.
-// Partial indexes, CHECK constraints and uuidv7() defaults that Prisma cannot express
-// are written by hand in the migration SQL.
+// Modelo de dados — ver docs/architecture.md §3 e §4.
+// Índices parciais, constraints CHECK e defaults uuidv7() que o Prisma não consegue expressar
+// são escritos à mão no SQL da migration.
 
 generator client {
   provider     = "prisma-client"
@@ -75,7 +75,7 @@ model Funnel {
   leads   Lead[]
 
   @@unique([productId, slug])
-  /// Target of the composite FK leads(funnel_id, product_id): a lead's funnel must belong to its product.
+  /// Alvo da FK composta leads(funnel_id, product_id): o funil de um lead precisa pertencer ao produto dele.
   @@unique([id, productId])
   @@map("funnels")
 }
@@ -95,7 +95,7 @@ model CallCenter {
   id        String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   slug      String   @unique @db.VarChar(64)
   name      String   @db.VarChar(120)
-  /// Relative weight for the dispatcher. CHECK (weight > 0) in SQL.
+  /// Peso relativo para o dispatcher. CHECK (weight > 0) no SQL.
   weight    Int
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -109,8 +109,8 @@ model CallCenter {
   @@map("call_centers")
 }
 
-/// Single-row table (CHECK id = 1) holding the dispatcher's global, gap-free cursor.
-/// Incremented with UPDATE ... RETURNING inside the distribution transaction (ADR-0003).
+/// Tabela de linha única (CHECK id = 1) com o cursor global e sem buracos do dispatcher.
+/// Incrementado com UPDATE ... RETURNING dentro da transação de distribuição (ADR-0003).
 model DispatcherState {
   id            Int      @id @default(1) @db.SmallInt
   cursor        BigInt   @default(0)
@@ -140,7 +140,7 @@ model Lead {
   distributionStatus DistributionStatus @default(pending) @map("distribution_status")
   callCenterId       String?            @map("call_center_id") @db.Uuid
   distributedAt      DateTime?          @map("distributed_at") @db.Timestamptz(3)
-  /// "client:<Idempotency-Key>" or "payload:<sha256>" (ADR-0004).
+  /// "client:<Idempotency-Key>" ou "payload:<dia UTC>:<sha256>" (ADR-0004).
   idempotencyKey     String             @unique @map("idempotency_key") @db.VarChar(300)
   requestHash        String             @map("request_hash") @db.Char(64)
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -160,12 +160,12 @@ model Lead {
   @@map("leads")
 }
 
-/// Audit record of the dispatcher's decision. One per lead (UNIQUE lead_id).
+/// Registro de auditoria da decisão do dispatcher. Um por lead (UNIQUE lead_id).
 model Distribution {
   id            String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
   leadId        String   @unique @map("lead_id") @db.Uuid
   callCenterId  String   @map("call_center_id") @db.Uuid
-  /// Global cursor value that selected the slot.
+  /// Valor do cursor global que escolheu a posição.
   cursor        BigInt
   configVersion Int      @map("config_version")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -176,7 +176,7 @@ model Distribution {
   @@map("distributions")
 }
 
-/// Append-only status history. Every received event is stored, applied or not.
+/// Histórico de status append-only. Todo evento recebido é gravado, aplicado ou não.
 model LeadEvent {
   id              String          @id @default(dbgenerated("uuidv7()")) @db.Uuid
   leadId          String          @map("lead_id") @db.Uuid
@@ -202,7 +202,7 @@ model LeadEvent {
   @@map("lead_events")
 }
 
-/// Transactional outbox (ADR-0002). Written with the lead, published by the worker relay.
+/// Transactional outbox (ADR-0002). Gravado junto com o lead, publicado pelo relay do worker.
 model OutboxEvent {
   id          BigInt    @id @default(autoincrement())
   type        String    @db.VarChar(64)
@@ -214,7 +214,7 @@ model OutboxEvent {
   attempts    Int       @default(0)
   lastError   String?   @map("last_error")
 
-  /// Reconciler: latest outbox event of a lead.
+  /// Reconciliação: último evento de outbox de um lead.
   @@index([aggregateId, id(sort: Desc)], map: "outbox_events_aggregate_id_idx")
   @@map("outbox_events")
 }
@@ -224,7 +224,7 @@ model User {
   email        String    @unique @db.VarChar(254)
   passwordHash String    @map("password_hash")
   role         UserRole
-  /// Required for operators, forbidden for admins (CHECK in SQL).
+  /// Obrigatório para operators, proibido para admins (CHECK no SQL).
   callCenterId String?   @map("call_center_id") @db.Uuid
   failedLogins Int       @default(0) @map("failed_logins")
   lockedUntil  DateTime? @map("locked_until") @db.Timestamptz(3)
@@ -239,7 +239,7 @@ model User {
 }
 
 model Session {
-  /// sha256(token) in hex; the raw token only exists in the user's cookie.
+  /// sha256(token) em hex; o token original só existe no cookie do usuário.
   tokenHash String   @id @map("token_hash") @db.Char(64)
   userId    String   @map("user_id") @db.Uuid
   expiresAt DateTime @map("expires_at") @db.Timestamptz(3)

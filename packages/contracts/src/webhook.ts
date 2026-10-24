@@ -4,7 +4,7 @@ import { leadStatusSchema } from './enums.js';
 export const CALLCENTER_ID_HEADER = 'x-callcenter-id';
 export const SIGNATURE_HEADER = 'x-signature';
 
-/** Payload accepted by POST /api/webhooks/callcenter. */
+/** Payload aceito pelo POST /api/webhooks/callcenter. */
 export const callCenterWebhookSchema = z.object({
   lead_id: z.uuid(),
   external_id: z.string().trim().min(1).max(128).optional(),

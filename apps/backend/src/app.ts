@@ -32,7 +32,7 @@ export async function buildApp({ config, db }: AppDependencies) {
   const app = Fastify({
     logger: loggerOptions(config.LOG_LEVEL, config.NODE_ENV === 'development'),
     bodyLimit: BODY_LIMIT_BYTES,
-    // Only trust X-Forwarded-For when a known proxy sits in front (the web container).
+    // Só confia no X-Forwarded-For quando há um proxy conhecido na frente (o container web).
     trustProxy: (_address: string, hop: number) => hop < config.TRUST_PROXY_HOPS,
     requestIdHeader: 'x-request-id',
   }).withTypeProvider<ZodTypeProvider>();
@@ -55,7 +55,7 @@ export async function buildApp({ config, db }: AppDependencies) {
         .status(400)
         .send(errorBody('VALIDATION_ERROR', 'Request validation failed', details));
     }
-    // Fastify's own client errors (malformed JSON, wrong content type, body too large, ...).
+    // Erros de cliente do próprio Fastify (JSON malformado, content type errado, corpo grande demais...).
     if (error.statusCode !== undefined && error.statusCode >= 400 && error.statusCode < 500) {
       return reply
         .status(error.statusCode)

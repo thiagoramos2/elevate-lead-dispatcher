@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-/** Every non-2xx response from the API has this shape. */
+/** Toda resposta não-2xx da API tem este formato. */
 export const errorResponseSchema = z.object({
   success: z.literal(false),
   error: z.object({

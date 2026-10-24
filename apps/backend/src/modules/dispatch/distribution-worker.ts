@@ -19,8 +19,8 @@ export interface DistributionWorkerOptions {
 }
 
 /**
- * Consumes distribution jobs. Concurrency within and across workers is safe because
- * distributeLead serializes on Postgres row locks, not on anything in this process.
+ * Consome os jobs de distribuição. A concorrência dentro de um worker e entre workers é segura
+ * porque distributeLead serializa em row locks do Postgres, não em nada deste processo.
  */
 export function createDistributionWorker({
   db,
@@ -39,12 +39,12 @@ export function createDistributionWorker({
         );
         return { kind: outcome.kind, callCenterId: outcome.callCenterId };
       } catch (error) {
-        // Retrying cannot make a missing lead appear: fail now instead of after 8 attempts.
+        // Retentar não faz um lead inexistente aparecer: falha agora em vez de depois de 8 tentativas.
         if (error instanceof LeadNotFoundError) throw new UnrecoverableError(error.message);
         throw error;
       }
     },
-    // Workers block on Redis: they need maxRetriesPerRequest = null (BullMQ requirement).
+    // Workers ficam bloqueados no Redis: precisam de maxRetriesPerRequest = null (exigência do BullMQ).
     { connection: { url: redisUrl, maxRetriesPerRequest: null }, concurrency },
   );
 
@@ -67,7 +67,7 @@ export function createDistributionWorker({
   return worker;
 }
 
-/** Outbox publisher backed by the BullMQ queue. */
+/** Publisher do outbox que usa a fila do BullMQ. */
 export function queuePublisher(queue: Queue<DistributionJobData>): OutboxPublisher {
   return async (events) => {
     await queue.addBulk(

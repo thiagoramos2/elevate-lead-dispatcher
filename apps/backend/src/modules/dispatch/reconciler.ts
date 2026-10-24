@@ -5,19 +5,19 @@ import { DISTRIBUTION_REQUESTED } from '../leads/lead.repository.js';
 import { type DistributionJobData, distributionJobId } from './queue.js';
 
 export interface ReconcilerOptions {
-  /** A pending lead older than this is inspected. Must exceed normal queue latency. */
+  /** Um lead pendente mais antigo que isto é inspecionado. Precisa ser maior que a latência normal da fila. */
   readonly stuckAfterSeconds?: number;
   readonly batchSize?: number;
-  /** Published outbox rows older than this are deleted. */
+  /** Linhas do outbox já publicadas e mais antigas que isto são apagadas. */
   readonly outboxRetentionDays?: number;
 }
 
 /**
- * Safety net for the one failure the outbox cannot see: a job that was published and then
- * lost by Redis (restart without persistence, eviction, manual flush). For each lead pending
- * for too long whose latest outbox event was published, it asks BullMQ about the job; if
- * Redis no longer knows it, a new outbox event is written and the normal path takes over.
- * Jobs that are waiting, delayed, active or failed are left alone.
+ * Rede de segurança para a única falha que o outbox não enxerga: um job que foi publicado e
+ * depois perdido pelo Redis (restart sem persistência, eviction, flush manual). Para cada lead
+ * pendente há tempo demais cujo último evento de outbox foi publicado, pergunta ao BullMQ pelo
+ * job; se o Redis não o conhece mais, grava um novo evento de outbox e o fluxo normal assume.
+ * Jobs em waiting, delayed, active ou failed não são tocados.
  */
 export class DistributionReconciler {
   private readonly stuckAfterSeconds: number;
@@ -35,7 +35,7 @@ export class DistributionReconciler {
     this.outboxRetentionDays = options.outboxRetentionDays ?? 7;
   }
 
-  /** Returns the number of leads re-queued. */
+  /** Retorna quantos leads foram reenfileirados. */
   async requeueLostJobs(): Promise<number> {
     const candidates = await this.db.$queryRaw<{ lead_id: string; outbox_id: bigint }[]>`
       SELECT l.id AS lead_id, o.id AS outbox_id
@@ -63,7 +63,7 @@ export class DistributionReconciler {
     return requeued;
   }
 
-  /** Keeps the outbox small: published events are only needed for a short audit window. */
+  /** Mantém o outbox pequeno: eventos publicados só são necessários numa janela curta de auditoria. */
   async purgePublishedOutbox(): Promise<number> {
     return this.db.$executeRaw`
       DELETE FROM outbox_events

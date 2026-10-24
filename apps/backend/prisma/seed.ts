@@ -1,6 +1,6 @@
 /**
- * Demo data for local evaluation. Idempotent: safe to run on every container start.
- * Product names are fictional, passwords are demo values from the environment.
+ * Dados de demonstração para a avaliação local. Idempotente: seguro rodar a cada subida do container.
+ * Os nomes de produto são fictícios; as senhas são valores de demonstração vindos do ambiente.
  */
 
 import { createDatabase } from '../src/infra/prisma.js';

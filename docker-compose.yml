@@ -1,6 +1,6 @@
 name: elevate-lead-dispatcher
 
-# Shared by api and worker. Demo values only; override through a local .env file.
+# Compartilhado por api e worker. Só valores de demonstração; sobrescreva com um .env local.
 x-backend-env: &backend-env
   NODE_ENV: production
   LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -24,7 +24,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # PG 18 images keep data under /var/lib/postgresql/<major>/docker.
+      # As imagens do PG 18 guardam os dados em /var/lib/postgresql/<major>/docker.
       - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U elevate -d elevate"]
@@ -34,7 +34,7 @@ services:
 
   redis:
     image: redis:8-alpine
-    # AOF so queued jobs survive a restart; noeviction because BullMQ must never lose keys.
+    # AOF para os jobs enfileirados sobreviverem a um restart; noeviction porque o BullMQ nunca pode perder chaves.
     command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     ports:
       - "6379:6379"
@@ -68,7 +68,7 @@ services:
       <<: *backend-env
       API_PORT: 3001
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
-      # The web container proxies /api, so exactly one hop of X-Forwarded-For is trusted.
+      # O container web faz proxy de /api, então exatamente um hop de X-Forwarded-For é confiável.
       TRUST_PROXY_HOPS: 1
     ports:
       - "3001:3001"
@@ -95,7 +95,7 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    # Scale horizontally: `docker compose up --scale worker=3`. Safe by design (ADR-0003).
+    # Escala horizontal: `docker compose up --scale worker=3`. Seguro por design (ADR-0003).
     restart: unless-stopped
 
 volumes:

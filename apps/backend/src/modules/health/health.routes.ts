@@ -3,8 +3,9 @@ import { z } from 'zod';
 import type { Database } from '../../infra/prisma.js';
 
 /**
- * Liveness says the process is up; readiness says it can serve traffic. Ingestion only needs
- * Postgres, so Redis is deliberately not part of API readiness (ADR-0002).
+ * Liveness diz que o processo está de pé; readiness diz que ele pode receber tráfego. A
+ * ingestão só precisa do Postgres, então o Redis fica de fora do readiness da API de propósito
+ * (ADR-0002).
  */
 export const healthRoutes: FastifyPluginAsyncZod<{ db: Database }> = async (app, { db }) => {
   app.get(

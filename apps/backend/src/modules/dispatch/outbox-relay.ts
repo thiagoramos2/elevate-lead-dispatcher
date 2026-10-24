@@ -7,24 +7,24 @@ export interface PendingOutboxEvent {
   readonly aggregateId: string;
 }
 
-/** Publishes a batch to the transport. Must throw if any event was not accepted. */
+/** Publica um lote no transporte. Precisa lançar erro se algum evento não foi aceito. */
 export type OutboxPublisher = (events: readonly PendingOutboxEvent[]) => Promise<void>;
 
 export interface OutboxRelayOptions {
   readonly batchSize?: number;
-  /** Upper bound of the exponential backoff applied to events whose publication failed. */
+  /** Teto do backoff exponencial aplicado aos eventos cuja publicação falhou. */
   readonly maxBackoffSeconds?: number;
 }
 
 /**
- * Moves outbox events from Postgres to the queue (ADR-0002).
+ * Move os eventos do outbox do Postgres para a fila (ADR-0002).
  *
- * - `FOR UPDATE SKIP LOCKED`: several relays can run at once; each claims a disjoint batch.
- * - The batch stays locked while publishing, and is marked published only if the publisher
- *   succeeded. A crash in between leaves it unpublished, so it is published again later:
- *   delivery is at-least-once, and consumers are idempotent.
- * - On failure (e.g. Redis down) the events get an exponential `available_at` backoff,
- *   so a dead transport is not hammered and nothing is lost.
+ * - `FOR UPDATE SKIP LOCKED`: vários relays podem rodar ao mesmo tempo; cada um pega um lote diferente.
+ * - O lote fica travado durante a publicação e só é marcado como publicado se o publisher teve
+ *   sucesso. Uma queda no meio deixa o lote não publicado, e ele é publicado de novo depois:
+ *   a entrega é at-least-once, e os consumidores são idempotentes.
+ * - Em caso de falha (ex.: Redis fora do ar), os eventos recebem um backoff exponencial em
+ *   `available_at`, para não martelar um transporte morto e sem perder nada.
  */
 export class OutboxRelay {
   private readonly batchSize: number;
@@ -40,7 +40,7 @@ export class OutboxRelay {
     this.maxBackoffSeconds = options.maxBackoffSeconds ?? 60;
   }
 
-  /** Publishes one batch. Returns how many events were published (0 if none or on failure). */
+  /** Publica um lote. Retorna quantos eventos foram publicados (0 se não havia nenhum ou se falhou). */
   async publishBatch(): Promise<number> {
     return this.db.$transaction(
       async (tx) => {
@@ -82,7 +82,7 @@ export class OutboxRelay {
     );
   }
 
-  /** Drains everything currently available. Mostly useful in tests and at startup. */
+  /** Esvazia tudo o que está disponível agora. Útil principalmente em testes e na inicialização. */
   async drain(): Promise<number> {
     let total = 0;
     for (;;) {

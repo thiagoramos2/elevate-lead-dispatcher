@@ -2,13 +2,13 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { Logger } from 'pino';
 
 export interface PeriodicTask {
-  /** Stops scheduling and waits for the iteration in progress to finish. */
+  /** Para de agendar e espera a iteração em andamento terminar. */
   stop(): Promise<void>;
 }
 
 /**
- * Runs `task` forever: again immediately while it reports more work, otherwise after
- * `intervalMs`. Errors are logged and never kill the loop.
+ * Executa `task` para sempre: de novo imediatamente enquanto ela indicar que há mais trabalho,
+ * senão depois de `intervalMs`. Erros são logados e nunca derrubam o loop.
  */
 export function runPeriodically(
   name: string,

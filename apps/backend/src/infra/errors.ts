@@ -4,9 +4,9 @@ export interface FieldError {
 }
 
 /**
- * An expected failure with a stable machine-readable code. The global error handler turns it
- * into `{ success: false, error: { code, message, details } }`. Anything that is not an
- * AppError is treated as a bug and answered with a generic 500.
+ * Falha esperada, com um código estável legível por máquina. O handler global de erros a
+ * transforma em `{ success: false, error: { code, message, details } }`. Qualquer coisa que não
+ * seja um AppError é tratada como bug e respondida com um 500 genérico.
  */
 export class AppError extends Error {
   override readonly name = 'AppError';

@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { defineConfig } from 'prisma/config';
 
-// Prisma 7 no longer reads .env on its own. Local development uses the repo-root .env;
-// containers receive real environment variables and have no .env file.
+// O Prisma 7 não lê mais o .env sozinho. O desenvolvimento local usa o .env da raiz do repo;
+// os containers recebem variáveis de ambiente reais e não têm arquivo .env.
 const rootEnv = new URL('../../.env', import.meta.url);
 if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
@@ -12,6 +12,6 @@ export default defineConfig({
     path: 'prisma/migrations',
     seed: 'tsx prisma/seed.ts',
   },
-  // Optional so that `prisma generate` works at image build time without a database.
+  // Opcional para o `prisma generate` funcionar no build da imagem, sem banco.
   datasource: { url: process.env.DATABASE_URL ?? '' },
 });

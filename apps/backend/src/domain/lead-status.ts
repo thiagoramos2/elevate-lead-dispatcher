@@ -1,9 +1,9 @@
 import type { LeadStatus } from '@elevate/contracts';
 
 /**
- * Allowed lead status transitions (ADR-0005).
- * `sale` can only be reversed by `refund`; `refund` and `invalid` are terminal.
- * `no_answer` and `callback` may repeat: each one is a new contact attempt.
+ * Transições de status permitidas para um lead (ADR-0005).
+ * `sale` só pode ser revertido por `refund`; `refund` e `invalid` são terminais.
+ * `no_answer` e `callback` podem se repetir: cada um é uma nova tentativa de contato.
  */
 export const STATUS_TRANSITIONS: Readonly<Record<LeadStatus, readonly LeadStatus[]>> = {
   new: ['contacted', 'no_answer', 'callback', 'qualified', 'sale', 'invalid'],
@@ -28,21 +28,22 @@ export type StatusChangeDecision =
 
 export interface StatusChangeRequest {
   readonly current: LeadStatus;
-  /** When the current status took effect (from the event that set it). */
+  /** Quando o status atual passou a valer (segundo o evento que o definiu). */
   readonly currentChangedAt: Date;
   readonly next: LeadStatus;
-  /** When the incoming event happened at the source, not when we received it. */
+  /** Quando o evento recebido aconteceu na origem, não quando nós o recebemos. */
   readonly occurredAt: Date;
 }
 
 /**
- * Decides whether an incoming status event changes the lead.
+ * Decide se um evento de status recebido altera o lead.
  *
- * 1. Ordering: an event that happened at or before the current status is stale.
- *    A `contacted` from 11:00 arriving after a `sale` from 12:00 never overwrites the sale.
- * 2. State machine: a newer event is still rejected if the transition is not allowed.
+ * 1. Ordenação: um evento que aconteceu no mesmo instante ou antes do status atual está
+ *    obsoleto (stale). Um `contacted` das 11:00 que chega depois de um `sale` das 12:00 nunca
+ *    sobrescreve a venda.
+ * 2. Máquina de estados: mesmo um evento mais novo é rejeitado se a transição não for permitida.
  *
- * Rejected events are still recorded by the caller for auditing.
+ * Eventos rejeitados continuam sendo gravados por quem chama, para auditoria.
  */
 export function decideStatusChange(request: StatusChangeRequest): StatusChangeDecision {
   if (request.occurredAt.getTime() <= request.currentChangedAt.getTime()) {
