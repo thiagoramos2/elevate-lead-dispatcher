@@ -9,3 +9,6 @@ coverage/
 .vscode/*
 !.vscode/extensions.json
 apps/backend/src/generated/
+
+# Notas locais de estudo/revisão (não versionadas)
+notes/
