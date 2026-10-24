@@ -1,34 +1,48 @@
 # CLAUDE.md — Elevate Lead Dispatcher
 
-Instruções para agentes de IA neste repositório. Fonte da verdade da arquitetura: `docs/PLAN.md`.
+Instruções para agentes de IA neste repositório.
+Arquitetura: `docs/architecture.md`. Decisões: `docs/decisions/`. Progresso: `docs/requirements-checklist.md`.
 
 ## Contexto
-Teste técnico (Full Stack Sênior, Grupo Elevate). O núcleo avaliado: recebimento de leads,
-modelagem, dispatcher com concorrência e webhook do call center. Profundidade > abrangência.
+Teste técnico (Full Stack Sênior, Grupo Elevate). Núcleo avaliado: recebimento de leads, modelagem,
+dispatcher com concorrência e webhook do call center. Correção > consistência > integridade > segurança > testes > resto.
+
+## Arquitetura em uma frase
+A API grava lead + outbox numa transação (só Postgres). O worker publica o outbox no BullMQ e distribui
+cada lead com smooth WRR indexado por um cursor gap-free travado no Postgres. O webhook aplica eventos
+autenticados por HMAC com dedup e regras de ordenação.
 
 ## Regras de trabalho
-- Trabalhe por fase (`docs/PLAN.md` §8). Não avance de fase sem testes verdes e revisão humana.
-- Toda decisão não trivial vai para `docs/PLAN.md` (com alternativa descartada) e, se a IA sugeriu algo rejeitado, para `docs/AI_LOG.md`.
-- Commits pequenos e em Conventional Commits (`feat(scope):`, `fix:`, `test:`, `docs:`, `chore:`). Nunca reescrever histórico.
-- Não adicione dependência, serviço ou camada sem justificativa escrita.
+- Trabalhe por etapa. Não avance sem testes verdes; reporte resultados reais, nunca presumidos.
+- Decisão relevante → ADR em `docs/decisions/` com as alternativas descartadas.
+- Sugestão da IA rejeitada/corrigida pelo humano → `docs/AI_LOG.md`.
+- Atualize `docs/requirements-checklist.md` ao concluir um item.
+- Conventional Commits, pequenos. Nunca reescrever histórico nem rodar comando destrutivo sem autorização.
+- Nenhuma dependência, serviço ou camada nova sem justificativa escrita.
+
+## Invariantes que não podem quebrar
+- O lead é persistido (com o evento de outbox, na mesma transação) antes do `201`.
+- A API não publica no Redis. Só o relay do worker publica.
+- A distribuição é idempotente: `FOR UPDATE` no lead + `UNIQUE(distributions.lead_id)`.
+- Ordem de locks: `leads` → `dispatcher_state`. Nunca o inverso.
+- Escopo de OPERATOR vem da sessão, aplicado no service. Lead fora do escopo → 404.
+- Webhook: corpo bruto para o HMAC, `timingSafeEqual`, todo evento é gravado (aplicado ou não).
 
 ## Convenções de código
-- TypeScript strict. Sem `any`. Sem `as` para silenciar o compilador.
-- Código e identificadores em inglês; documentação em português.
-- Camadas: `routes` (HTTP, validação, authz) → `service` (casos de uso, transações) → `repository` (SQL).
-- Regras de negócio puras ficam em `apps/api/src/domain/`, sem I/O.
-- Schemas de entrada/saída vêm de `packages/contracts` (Zod). Nunca duplicar validação.
-- SQL sempre parametrizado (Drizzle ou template `sql`). Nunca concatenar strings.
-- Escopo de OPERATOR é aplicado no backend (service/repository), nunca confiando em parâmetro do cliente.
-- Erros: lançar erros de domínio tipados; o handler global mapeia para HTTP. Nunca vazar stack/SQL na resposta.
-- Logs via pino; e-mail, telefone, senha, cookies e assinaturas são redigidos.
+- TypeScript strict. Sem `any`, sem `as` para calar o compilador.
+- Código em inglês; documentação em português.
+- `routes` (HTTP, validação, authz) → `service` (casos de uso, transação) → `repository` (SQL).
+- Regras puras em `apps/backend/src/domain/` (sem I/O).
+- Schemas Zod em `packages/contracts`; nunca duplicar validação.
+- SQL cru só via `$queryRaw` com template tag (parametrizado). Nunca `$queryRawUnsafe` com input.
+- Erros de domínio tipados (`AppError`) → handler global → HTTP. Nunca vazar stack/SQL.
+- Logs pino com redaction de e-mail, telefone, senha, cookie, assinatura.
 
 ## Testes
-- Vitest. Integração contra Postgres real (Testcontainers), nunca mock de banco.
-- Toda regra de negócio crítica tem teste: validação, WRR, máquina de estados, idempotência, HMAC, autorização, concorrência.
-- `pnpm test` precisa passar antes de cada commit.
+- Vitest. `test/unit` sem infraestrutura; `test/integration` com Postgres e Redis reais (Testcontainers).
+- Proibido mockar o banco para provar consistência transacional.
 
 ## Comandos
-- `docker compose up` — sobe tudo (db, migrate, api, web)
-- `pnpm test` — todos os testes
-- `pnpm --filter api db:generate` — gera migration a partir do schema
+- `docker compose up --build` — sobe web, api, worker, postgres, redis (migrations + seed automáticos)
+- `pnpm install` / `pnpm test` / `pnpm test:unit` / `pnpm test:integration` / `pnpm lint`
+- `pnpm --filter backend prisma migrate dev --create-only --name <nome>` — nova migration (revisar o SQL!)
