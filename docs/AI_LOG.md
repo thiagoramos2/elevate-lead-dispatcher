@@ -45,6 +45,30 @@ Ferramenta: Claude Code (Claude Opus), no VS Code.
 - **Validado com:** 64 testes unitários + 9 de integração (constraints provadas escrevendo linhas inválidas direto no
   banco), `tsc --noEmit`, Biome, e `migrate` + seed do zero num projeto Compose isolado.
 
+## Etapa 3: núcleo (ingestão, outbox, relay, worker, dispatcher)
+
+- **Delegado:** `POST /api/leads` com idempotência, transactional outbox, relay, worker BullMQ, dispatcher com lock no
+  Postgres, reconciliação, testes de integração e de concorrência.
+- **Origem dos itens abaixo:** detectados pela IA durante a implementação e a revisão (medições, testes, leitura do
+  código-fonte das dependências). Revisão humana da etapa: _pendente; anotar aqui o que for alterado ou rejeitado_.
+- **Hipótese corrigida por medição:** o teste de 100 distribuições concorrentes falhou com
+  `Unable to start a transaction in the given time` (o `maxWait` padrão de 2 s do Prisma). A primeira hipótese foi a
+  seção crítica longa demais. Encurtá-la (configuração lida antes do lock com checagem otimista por `config_version`,
+  escrita num único CTE) ajudou pouco: de ~1,7 s para ~1,5 s. A medição de controle (100 transações **sem lock**:
+  1,17 s) mostrou que ~78% do tempo era custo do cliente, não contenção. Decisões: manter a seção crítica curta (é o
+  que limita a escala com vários processos), configurar `maxWait`/`timeout` explicitamente com justificativa, e
+  registrar os números em `scalability.md` em vez de afirmar capacidade.
+- **Design do plano corrigido:** o plano dizia `jobId = lead_id`. Com `removeOnFail` de 7 dias, um job antigo em
+  `failed` faria o BullMQ ignorar o reenfileiramento da reconciliação. Passou a ser um id por evento de outbox. A IA
+  também verificou no código do BullMQ 6 que ids customizados não podem conter `:`.
+- **Ferramenta errou de novo:** o formatter de Markdown do Biome quebrou listas aninhadas no `architecture.md`
+  (já commitado em `029a90b`). Markdown foi excluído do Biome e a seção foi reescrita.
+- **Teste reescrito:** um teste de `Idempotency-Key` gerado com um cast forçado (`as unknown as`) para ler o corpo da
+  requisição foi substituído por duas asserções diretas.
+- **Validado com:** 107 testes (64 unitários + 43 de integração) em 3 execuções seguidas sem intermitência;
+  `docker compose up` real com `curl` (201 → 200 replay → 400); Redis parado durante a ingestão (API seguiu com `201`,
+  leads distribuídos sozinhos quando o Redis voltou).
+
 <!-- Formato:
 ## Etapa N: título
 - Delegado:

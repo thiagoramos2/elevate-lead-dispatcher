@@ -9,17 +9,37 @@ Os leads devem ser distribuídos em A 50% / B 30% / C 20%. Vários workers, cada
 ## Decisão
 
 **Smooth weighted round robin (SWRR) indexado por um cursor global gap-free no Postgres.**
-1. Os pesos são reduzidos pelo MDC (50/30/20 → 5/3/2). O SWRR (o mesmo algoritmo do nginx) gera um escalonamento determinístico de `Σpesos` slots, intercalado e sem rajadas: `A B C A A B A C B A`. É uma função pura, testada em unidade e cacheada por `config_version`.
-2. Dentro da transação do job: `UPDATE dispatcher_state SET cursor = cursor + 1 WHERE id = 1 RETURNING cursor, config_version`.
-   - O `UPDATE` é atômico e trava a linha até o commit, então dois workers nunca obtêm o mesmo cursor.
-   - Se a transação faz rollback, o incremento é desfeito. O cursor não tem buracos, e a proporção é **exata** a cada `Σpesos` distribuições confirmadas.
-3. `call_center = schedule[(cursor - 1) mod Σpesos]`.
-4. Idempotência: antes do cursor, `SELECT ... FROM leads WHERE id = $1 FOR UPDATE`. Se já distribuído → no-op, sem consumir cursor. `UNIQUE(distributions.lead_id)` é a última barreira.
-5. Ordem de locks fixa (lead → dispatcher_state) para evitar deadlock.
+
+1. Os pesos são reduzidos pelo MDC (50/30/20 → 5/3/2). O SWRR (o mesmo algoritmo do nginx) gera um escalonamento
+   determinístico de `Σpesos` slots, intercalado e sem rajadas: `A B C A A B A C B A`. É uma função pura
+   (`domain/weighted-schedule.ts`), testada em unidade. Ela é recalculada a cada distribuição, porque custa
+   microssegundos para dezenas de slots; um cache seria estado a mais para invalidar.
+2. Transação do job (`distributeLead`):
+   1. `SELECT ... FROM leads WHERE id = $1 FOR UPDATE`. Se já distribuído → no-op, **sem consumir cursor**.
+   2. Lê `config_version` e os call centers ativos **sem lock** (ordenados por `slug`, para o escalonamento ser reproduzível).
+   3. **Seção crítica:** `UPDATE dispatcher_state SET cursor = cursor + 1 WHERE id = 1 AND config_version = $lida RETURNING cursor`.
+      - O `UPDATE` é atômico e trava a linha até o commit, então dois workers nunca obtêm o mesmo cursor.
+      - Se um ADMIN mudou a configuração enquanto esperávamos o lock, o Postgres reavalia o `WHERE` sobre a nova
+        versão da linha e nada é atualizado. O serviço relê a configuração (controle otimista).
+      - Em rollback o incremento é desfeito: o cursor não tem buracos, e a proporção é **exata** a cada `Σpesos`
+        distribuições confirmadas.
+   4. `call_center = schedule[(cursor - 1) mod Σpesos]`.
+   5. Um único statement (CTE) grava `distributions` e atualiza `leads`. Commit.
+3. `UNIQUE(distributions.lead_id)` é a última barreira contra duplicidade, mesmo se o código acima estivesse errado.
+4. Ordem de locks fixa (lead → dispatcher_state) para evitar deadlock.
+
+### Por que a configuração é lida antes do lock
+
+A primeira versão lia os call centers *depois* do `UPDATE`, dentro da seção crítica, e fazia `INSERT` e `UPDATE` em
+statements separados: o lock ficava preso por 5 round trips. Ler antes (com a checagem otimista por `config_version`)
+e juntar a escrita num CTE reduz a seção crítica para 2 statements + `COMMIT`. Ver as medições abaixo.
 
 ## Mudança de configuração (ADMIN)
 
-Na mesma transação: `SELECT ... FROM dispatcher_state FOR UPDATE`, atualizar pesos/ativos, `config_version += 1`, `cursor = 0`. Como os workers leem os call centers _depois_ de travar o `dispatcher_state`, eles nunca combinam um cursor com uma configuração parcial. Cada distribuição grava `config_version` para auditoria.
+Na mesma transação: `SELECT ... FROM dispatcher_state FOR UPDATE`, atualizar pesos/ativos, `config_version += 1`,
+`cursor = 0`. Um worker que leu a configuração antiga falha no `WHERE config_version = $lida` e relê, então nunca
+combina um cursor com uma configuração que não é a dele. Cada distribuição grava `config_version`, e o cursor é
+gap-free **dentro de cada versão** (coberto por teste de integração com a mudança no meio de uma rajada).
 
 ## Alternativas consideradas
 
@@ -33,5 +53,18 @@ Na mesma transação: `SELECT ... FROM dispatcher_state FOR UPDATE`, atualizar p
 
 ## Consequências
 
-- Distribuições são serializadas na linha do `dispatcher_state`. A vazão máxima ≈ 1 / (duração da transação). Com uma transação de poucos ms, estimamos centenas por segundo, **a confirmar por medição** (`docs/scalability.md`). Ingestão e distribuição são desacopladas, então um pico de entrada vira fila, não erro.
-- Se um dia isso for o gargalo: particionar o cursor por produto (uma linha de estado por produto/pool) ou pré-alocar blocos de slots por worker.
+- As distribuições são serializadas na seção crítica. Medido nesta máquina de desenvolvimento (Windows + Docker
+  Desktop, um único processo Node, pool de 40 conexões), com 100 distribuições concorrentes:
+
+  | Cenário | Tempo |
+  |---|---|
+  | 100 transações Prisma sem lock nenhum (5 queries cada), concorrentes | 1.170 ms |
+  | 100 distribuições concorrentes (versão inicial, seção crítica de 5 round trips) | ~1.700 ms |
+  | 100 distribuições concorrentes (versão atual, 2 statements + COMMIT) | ~1.500 ms |
+
+  A maior parte do tempo é custo do cliente (transações interativas do Prisma num único event loop + rede do Docker
+  Desktop), não contenção. O custo serializado pelo lock fica em torno de 3 ms por distribuição, um teto da ordem de
+  ~300/s **neste ambiente**. Não é um benchmark de produção; ver `docs/scalability.md`.
+- Ingestão e distribuição são desacopladas: um pico de entrada vira fila (`waiting` no BullMQ), não erro na API.
+- Se um dia isso for o gargalo: um cursor por pool (ex.: por produto), ou pré-alocar blocos de cursor por worker
+  (perde a intercalação perfeita entre workers, mas mantém a proporção por bloco).

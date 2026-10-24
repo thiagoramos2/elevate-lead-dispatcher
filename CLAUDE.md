@@ -35,7 +35,8 @@ autenticados por HMAC com dedup e regras de ordenação.
 ## Convenções de código
 
 - TypeScript strict. Sem `any`, sem `as` para calar o compilador.
-- Código em inglês; documentação em português.
+- Identificadores, mensagens de erro/log e nomes de testes em inglês; **comentários** e documentação em português.
+- Nunca editar comentários de migrations já aplicadas (o Prisma valida o checksum).
 - `routes` (HTTP, validação, authz) → `service` (casos de uso, transação) → `repository` (SQL).
 - Regras puras em `apps/backend/src/domain/` (sem I/O).
 - Schemas Zod em `packages/contracts`; nunca duplicar validação.
@@ -49,6 +50,9 @@ autenticados por HMAC com dedup e regras de ordenação.
 - Proibido mockar o banco para provar consistência transacional.
 
 ## Comandos
+
+Requer Node 24 LTS (Testcontainers 12 usa undici 8, que exige Node ≥ 22.19) e Docker.
+
 
 - `docker compose up --build` — sobe web, api, worker, postgres, redis (migrations + seed automáticos)
 - `pnpm install` / `pnpm test` / `pnpm test:unit` / `pnpm test:integration` / `pnpm lint`

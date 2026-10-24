@@ -36,37 +36,50 @@ API e worker compartilham o mesmo pacote (`apps/backend`) e a mesma imagem Docke
 
 ## 2. Fluxo de um lead
 
-**Ingestão (síncrona, só Postgres)**
-1. `POST /api/leads` → Zod valida o formato (400 com detalhes por campo).
-2. Transação:
-   1. Resolve `product` ativo e `funnel` ativo daquele produto → 422 se inválido.
-   2. Upsert do `affiliate` por `external_ref` (`ON CONFLICT DO NOTHING`).
-   3. `INSERT lead ... ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`.
-      Se não inseriu → replay → `200` com o `lead_id` existente (ou `409` se o payload diverge).
-   4. `INSERT lead_events` (status inicial `new`, origem `system`).
-   5. `INSERT outbox_events` (`lead.created`).
-3. Commit → `201 { success, lead_id, distribution_status: "pending" }`.
+### Ingestão (síncrona, só Postgres)
 
-O lead está persistido antes da resposta. Redis fora do ar não afeta a ingestão.
+1. `POST /api/leads` → Zod valida e normaliza o payload (`400` com detalhes por campo).
+2. Resolve o `product` ativo e o `funnel` ativo daquele produto, numa query (`422` se inválido).
+3. Transação:
+   - upsert do `affiliate` por `external_ref` (`ON CONFLICT DO NOTHING` + `SELECT`);
+   - `INSERT lead ... ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`. Se não inseriu, é um replay:
+     `200` com o `lead_id` original, ou `409` se a mesma chave veio com outro payload;
+   - `INSERT lead_events` (status inicial `new`, origem `system`);
+   - `INSERT outbox_events` (`lead.distribution_requested`).
+4. Commit → `201 { success, lead_id, duplicate: false, distribution_status: "pending" }`.
 
-**Publicação (worker: outbox relay)**
-4. Loop: `SELECT ... FROM outbox_events WHERE published_at IS NULL AND available_at <= now() ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED`.
-5. `queue.addBulk(...)` com `jobId = lead_id` (o BullMQ ignora um jobId que já existe).
-6. Marca `published_at`. Se o Redis falhar, faz rollback, incrementa `attempts`, define `available_at` com backoff e loga. Nada se perde.
+O lead está persistido antes da resposta. A API não fala com o Redis nesse caminho: com o Redis fora do ar a
+ingestão continua (validado com containers reais, ver `scalability.md`).
 
-**Distribuição (worker: consumidor BullMQ)**
-7. Transação:
-1. `SELECT ... FROM leads WHERE id = $1 FOR UPDATE`. Se já distribuído → no-op (idempotente).
-2. `UPDATE dispatcher_state SET cursor = cursor + 1 RETURNING cursor, config_version`. A linha fica travada até o commit, o que serializa a decisão entre todos os workers.
-3. Lê os call centers ativos e monta o escalonamento smooth WRR (função pura, cache por `config_version`).
-4. `call_center = schedule[(cursor - 1) mod length]`.
-5. `INSERT distributions` (`UNIQUE(lead_id)` é a última barreira contra duplicidade).
-6. `UPDATE leads SET call_center_id, distribution_status = 'distributed', distributed_at`.
-7. Falha: retry com backoff exponencial. Esgotadas as tentativas, `distribution_status = 'failed'` e o motivo fica registrado.
+### Publicação (worker: outbox relay, a cada 500 ms)
 
-**Atualização (webhook)**
-9. `POST /api/webhooks/callcenter`: verifica o HMAC do call center → Zod → transação:
-`FOR UPDATE` no lead → confere que o lead pertence ao call center autenticado → insere o evento com `dedup_key` (`ON CONFLICT DO NOTHING` → duplicado) → aplica ou rejeita (fora de ordem / transição inválida) → histórico sempre gravado.
+5. `SELECT ... FROM outbox_events WHERE published_at IS NULL AND available_at <= now() ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED`.
+6. `queue.addBulk(...)` com `jobId = lead-<lead_id>-o<outbox_id>`: uma republicação do mesmo evento é ignorada pelo BullMQ.
+7. Sucesso → `published_at = now()`. Falha → `attempts + 1`, `last_error`, `available_at = now() + min(2^attempts, 60) s`.
+
+### Distribuição (worker: consumidor BullMQ, N workers × concorrência M)
+
+8. Transação (`distributeLead`):
+   - `SELECT ... FROM leads WHERE id = $1 FOR UPDATE`. Se já distribuído → no-op, sem consumir cursor;
+   - lê `config_version` e os call centers ativos **sem lock** e monta o escalonamento SWRR (função pura);
+   - **seção crítica:** `UPDATE dispatcher_state SET cursor = cursor + 1 WHERE id = 1 AND config_version = $lida RETURNING cursor`.
+     Se a configuração mudou nesse meio-tempo, nenhuma linha volta e o passo anterior é refeito;
+   - `call_center = schedule[(cursor - 1) mod Σpesos]`;
+   - um único statement (CTE) grava `distributions` e atualiza `leads` (`call_center_id`, `distribution_status`, `distributed_at`);
+   - commit libera o lock.
+9. Erro transitório (ex.: nenhum call center ativo, banco indisponível) → retry com backoff exponencial (8 tentativas, ~2 min).
+   Lead inexistente → `UnrecoverableError`, sem retry. Esgotadas as tentativas → `distribution_status = 'failed'`.
+
+### Reconciliação (worker, a cada 60 s)
+
+10. Lead `pending` há mais de 5 min cujo último evento de outbox foi publicado, mas o job não existe mais no Redis
+    → grava um novo evento de outbox e o fluxo normal recomeça. Eventos publicados com mais de 7 dias são apagados.
+
+### Atualização (webhook)
+
+11. `POST /api/webhooks/callcenter`: verifica o HMAC do call center → Zod → transação:
+    `FOR UPDATE` no lead → confere que o lead pertence ao call center autenticado → insere o evento com `dedup_key`
+    (`ON CONFLICT DO NOTHING` → duplicado) → aplica ou rejeita (fora de ordem / transição inválida) → histórico sempre gravado.
 
 ## 3. Modelo de dados
 
@@ -106,6 +119,7 @@ sessions        (token_hash PK, user_id FK, expires_at, created_at)
 | `leads(status, created_at DESC)`                                                                                                                                         | contagem de vendas, filtro por status                                        |
 | `leads(product_id, funnel_id, created_at DESC)`                                                                                                                          | filtro por produto/funil                                                     |
 | `leads(created_at) WHERE distribution_status <> 'distributed'` (parcial)                                                                                                 | métrica "pendentes" e reconciliação de leads presos; o índice fica minúsculo |
+| `outbox_events(aggregate_id, id DESC)` | reconciliação: último evento de outbox de um lead |
 | `outbox_events(id) WHERE published_at IS NULL` (parcial)                                                                                                                 | o polling do relay lê só os pendentes                                        |
 | `lead_events(lead_id, occurred_at)`                                                                                                                                      | histórico de um lead                                                         |
 | UNIQUE: `leads(idempotency_key)`, `lead_events(lead_id, dedup_key)`, `distributions(lead_id)`, `funnels(product_id, slug)`, `products(slug)`, `affiliates(external_ref)` | idempotência e resolução na ingestão                                         |
