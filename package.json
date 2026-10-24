@@ -1,0 +1,21 @@
+{
+  "name": "elevate-lead-dispatcher",
+  "private": true,
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "pnpm -r test",
+    "test:unit": "pnpm --filter backend test:unit",
+    "test:integration": "pnpm --filter backend test:integration"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.2",
+    "typescript": "6.0.3"
+  }
+}
