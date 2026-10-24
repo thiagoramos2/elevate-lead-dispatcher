@@ -1,6 +1,8 @@
+import { createLeadSchema } from '@elevate/contracts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { App } from '../../src/app.js';
 import type { Database } from '../../src/infra/prisma.js';
+import { createLead } from '../../src/modules/leads/lead.service.js';
 import { buildTestApp, validLead } from './setup/app.js';
 import {
   connectTestDatabase,
@@ -175,6 +177,18 @@ describe('POST /api/leads', () => {
         phone: '+55 11 99999-9999',
       });
       expect(retry.json().lead_id).toBe(first.json().lead_id);
+    });
+
+    it('creates a new lead when the same payload arrives on another day', async () => {
+      const payload = createLeadSchema.parse(validLead());
+      const today = await createLead(db, payload, undefined, new Date('2026-10-24T10:00:00Z'));
+      const retry = await createLead(db, payload, undefined, new Date('2026-10-24T23:00:00Z'));
+      const nextWeek = await createLead(db, payload, undefined, new Date('2026-10-31T10:00:00Z'));
+
+      expect(retry).toMatchObject({ leadId: today.leadId, duplicate: true });
+      expect(nextWeek.duplicate).toBe(false);
+      expect(nextWeek.leadId).not.toBe(today.leadId);
+      expect(await db.lead.count()).toBe(2);
     });
 
     it('honours an explicit Idempotency-Key', async () => {

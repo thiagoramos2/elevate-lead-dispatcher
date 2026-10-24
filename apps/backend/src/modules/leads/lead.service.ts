@@ -19,20 +19,21 @@ export interface CreateLeadResult {
 const SOURCE_MAX_LENGTH = 64;
 const DEFAULT_SOURCE = 'direct';
 
-/** Explicit `source`, else the UTM source, else "direct". Always stored, so it is filterable. */
+/** `source` explícito, senão o source da UTM, senão "direct". Sempre gravado, para ser filtrável. */
 function resolveSource(payload: CreateLeadPayload): string {
   const fromUtm = payload.utm?.source?.toLowerCase().slice(0, SOURCE_MAX_LENGTH);
   return payload.source ?? fromUtm ?? DEFAULT_SOURCE;
 }
 
 /**
- * Persists a lead and its distribution request atomically (ADR-0002, ADR-0004).
- * The lead is committed before the caller answers; distribution happens in the worker.
+ * Persiste o lead e o pedido de distribuição de forma atômica (ADR-0002, ADR-0004).
+ * O lead é commitado antes de quem chama responder; a distribuição acontece no worker.
  */
 export async function createLead(
   db: Database,
   payload: CreateLeadPayload,
   clientIdempotencyKey: string | undefined,
+  receivedAt: Date = new Date(),
 ): Promise<CreateLeadResult> {
   const catalog = await findCatalog(db, payload.product, payload.funnel);
   if (!catalog) {
@@ -46,7 +47,7 @@ export async function createLead(
     ]);
   }
   const funnelId = catalog.funnelId;
-  const identity = deriveIdempotency(payload, clientIdempotencyKey);
+  const identity = deriveIdempotency(payload, clientIdempotencyKey, receivedAt);
 
   return db.$transaction(async (tx) => {
     const affiliateId = payload.affiliate_id
@@ -76,8 +77,8 @@ export async function createLead(
       return { leadId: inserted.id, duplicate: false, distributionStatus: 'pending' as const };
     }
 
-    // Replay. If a concurrent request inserted the same key, ON CONFLICT waited for its commit,
-    // so the row is visible here.
+    // Replay. Se uma requisição concorrente inseriu a mesma chave, o ON CONFLICT esperou o
+    // commit dela, então a linha está visível aqui.
     const existing = await findByIdempotencyKey(tx, identity.key);
     if (!existing) throw new Error('idempotency conflict without an existing lead');
     if (existing.requestHash !== identity.requestHash) {
