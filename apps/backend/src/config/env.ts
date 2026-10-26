@@ -37,6 +37,15 @@ const envSchema = z.object({
   REPORTING_TIMEZONE: z.string().default('America/Sao_Paulo'),
   CALLCENTER_WEBHOOK_SECRETS: webhookSecrets.default(new Map()),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
+  /**
+   * Cookie de sessão com `Secure`. Padrão: ligado em produção. O Compose de demonstração roda em
+   * http://localhost e o desliga explicitamente; atrás de HTTPS deve ficar ligado.
+   */
+  COOKIE_SECURE: z.enum(['true', 'false']).optional(),
+  SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(72).default(8),
+  RATE_LIMIT_LOGIN_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+  RATE_LIMIT_LEADS_PER_MINUTE: z.coerce.number().int().min(1).default(300),
+  RATE_LIMIT_WEBHOOK_PER_MINUTE: z.coerce.number().int().min(1).default(1200),
 });
 
 export type AppConfig = z.output<typeof envSchema>;
@@ -49,4 +58,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Invalid environment configuration:\n${problems.join('\n')}`);
   }
   return parsed.data;
+}
+
+export function cookieSecure(config: AppConfig): boolean {
+  return config.COOKIE_SECURE === undefined
+    ? config.NODE_ENV === 'production'
+    : config.COOKIE_SECURE === 'true';
 }

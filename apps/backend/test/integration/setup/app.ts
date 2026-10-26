@@ -9,10 +9,14 @@ export const WEBHOOK_SECRETS = {
   'callcenter-c': 'test-secret-c-0123456789abcdef0123456789',
 } as const;
 
-export function testConfig() {
+export function testConfig(overrides: Record<string, string> = {}) {
   return loadConfig({
     NODE_ENV: 'test',
     LOG_LEVEL: 'silent',
+    APP_ORIGIN: 'http://localhost:3000',
+    // Alto por padrão para os testes não interferirem entre si; o teste de rate limit usa um app próprio.
+    RATE_LIMIT_LOGIN_PER_MINUTE: '1000',
+    ...overrides,
     DATABASE_URL: inject('databaseUrl'),
     REDIS_URL: inject('redisUrl'),
     CALLCENTER_WEBHOOK_SECRETS: Object.entries(WEBHOOK_SECRETS)
@@ -21,8 +25,8 @@ export function testConfig() {
   });
 }
 
-export function buildTestApp(db: Database): Promise<App> {
-  return buildApp({ config: testConfig(), db });
+export function buildTestApp(db: Database, overrides: Record<string, string> = {}): Promise<App> {
+  return buildApp({ config: testConfig(overrides), db });
 }
 
 export const validLead = (overrides: Record<string, unknown> = {}) => ({

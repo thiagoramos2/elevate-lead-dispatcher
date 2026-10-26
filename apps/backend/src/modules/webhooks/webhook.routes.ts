@@ -24,6 +24,7 @@ export interface WebhookRoutesOptions {
   readonly db: Database;
   /** slug do call center → segredo HMAC. */
   readonly secrets: ReadonlyMap<string, string>;
+  readonly rateLimitPerMinute: number;
 }
 
 const unauthorized = () =>
@@ -31,7 +32,7 @@ const unauthorized = () =>
 
 export const webhookRoutes: FastifyPluginAsyncZod<WebhookRoutesOptions> = async (
   app,
-  { db, secrets },
+  { db, secrets, rateLimitPerMinute },
 ) => {
   // Neste plugin (encapsulado), o JSON é lido como texto para guardar o corpo bruto que foi assinado.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
@@ -47,6 +48,17 @@ export const webhookRoutes: FastifyPluginAsyncZod<WebhookRoutesOptions> = async 
   app.post(
     '/api/webhooks/callcenter',
     {
+      // Por call center declarado (cai para o IP se o header faltar): contém um parceiro com bug em loop.
+      config: {
+        rateLimit: {
+          max: rateLimitPerMinute,
+          timeWindow: '1 minute',
+          keyGenerator: (request) => {
+            const slug = request.headers[CALLCENTER_ID_HEADER];
+            return typeof slug === 'string' ? `callcenter:${slug}` : request.ip;
+          },
+        },
+      },
       schema: {
         tags: ['webhooks'],
         summary: 'Status update from a call center',

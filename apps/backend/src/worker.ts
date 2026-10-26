@@ -3,6 +3,7 @@ import { loadConfig } from './config/env.js';
 import { loggerOptions } from './infra/logger.js';
 import { runPeriodically } from './infra/periodic.js';
 import { createDatabase } from './infra/prisma.js';
+import { purgeExpiredSessions } from './modules/auth/session.service.js';
 import {
   createDistributionWorker,
   queuePublisher,
@@ -41,6 +42,7 @@ const tasks = [
     async () => {
       await reconciler.reconcileStuckLeads();
       await reconciler.purgePublishedOutbox();
+      await purgeExpiredSessions(db);
       return false;
     },
     RECONCILE_INTERVAL_MS,

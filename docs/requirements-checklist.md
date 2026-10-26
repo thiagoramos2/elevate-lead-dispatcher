@@ -19,11 +19,11 @@ Legenda: ⬜ pendente · 🟨 em andamento · ✅ feito e testado · ⚠️ parc
 | 15  | Webhook duplicado                                                                                     | ✅ | ADR-0005; `UNIQUE(lead_id, dedup_key)`; testes de duplicado e de 15 webhooks concorrentes |
 | 16  | Eventos fora de ordem                                                                                 | ✅ | ADR-0005; `domain/lead-status.ts`; testes stale e invalid_transition |
 | 17  | Segurança do webhook                                                                                  | ✅ | ADR-0005; `webhooks/signature.ts` (HMAC + janela anti-replay); 14 testes unitários + integração |
-| 18  | Dashboard: total, hoje, distribuídos, pendentes, vendas, conversão + tabela                           | ⬜     |                                                                       |
-| 19  | Filtros (período, produto, funil, origem, call center, status) + paginação                            | ⬜     |                                                                       |
-| 20  | Auth com ADMIN e OPERATOR                                                                             | ⬜     | ADR-0006                                                              |
-| 21  | Autorização no backend                                                                                | ⬜     |                                                                       |
-| 22  | Segurança: authn, authz, SQLi, XSS, CSRF, brute force, rate limit, dados sensíveis, input, webhook    | ⬜     | security.md                                                           |
+| 18  | Dashboard: total, hoje, distribuídos, pendentes, vendas, conversão + tabela                           | 🟨 | API pronta: `GET /api/leads/metrics`, `GET /api/leads`; tela pendente |
+| 19  | Filtros (período, produto, funil, origem, call center, status) + paginação                            | 🟨 | API pronta: filtros + paginação keyset; tela pendente |
+| 20  | Auth com ADMIN e OPERATOR                                                                             | ✅ | ADR-0006, `modules/auth/`, `auth-and-access.test.ts` |
+| 21  | Autorização no backend                                                                                | ✅ | guards no backend; testes de 403/404 por requisição direta à API |
+| 22  | Segurança: authn, authz, SQLi, XSS, CSRF, brute force, rate limit, dados sensíveis, input, webhook    | 🟨 | implementado (rate limit, lockout, CSRF, helmet, argon2id, HMAC, redaction); `security.md` pendente |
 | 23  | Testes unitários: validação, distribuição, status                                                     | ✅     | `test/unit/` (64 testes)                                              |
 | 23  | Testes de integração: leads, webhook                                                                  | ✅ | `leads-api.test.ts`, `webhook-api.test.ts` |
 | 23  | Teste de concorrência                                                                                 | ✅ | `distribution-service.test.ts`, `distribution-pipeline.test.ts` |

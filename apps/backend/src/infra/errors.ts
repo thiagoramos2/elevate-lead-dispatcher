@@ -27,3 +27,9 @@ export const unprocessable = (code: string, message: string, details?: readonly 
 export const conflict = (code: string, message: string) => new AppError(409, code, message);
 
 export const notFound = (message = 'Resource not found') => new AppError(404, 'NOT_FOUND', message);
+
+export const unauthenticated = () =>
+  new AppError(401, 'UNAUTHENTICATED', 'Authentication required');
+
+export const forbidden = () =>
+  new AppError(403, 'FORBIDDEN', 'You do not have permission to perform this action');

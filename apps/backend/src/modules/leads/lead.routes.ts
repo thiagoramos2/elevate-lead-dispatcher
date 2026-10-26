@@ -10,10 +10,20 @@ import { z } from 'zod';
 import type { Database } from '../../infra/prisma.js';
 import { createLead } from './lead.service.js';
 
-export const leadRoutes: FastifyPluginAsyncZod<{ db: Database }> = async (app, { db }) => {
+export interface LeadRoutesOptions {
+  readonly db: Database;
+  readonly rateLimitPerMinute: number;
+}
+
+export const leadRoutes: FastifyPluginAsyncZod<LeadRoutesOptions> = async (
+  app,
+  { db, rateLimitPerMinute },
+) => {
   app.post(
     '/api/leads',
     {
+      // Por IP. Generoso: várias landing pages podem sair do mesmo IP (servidor de formulários, NAT).
+      config: { rateLimit: { max: rateLimitPerMinute, timeWindow: '1 minute' } },
       schema: {
         tags: ['leads'],
         summary: 'Receive a lead from a sales page',
