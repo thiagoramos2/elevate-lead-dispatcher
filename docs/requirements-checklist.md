@@ -15,17 +15,17 @@ Legenda: ⬜ pendente · 🟨 em andamento · ✅ feito e testado · ⚠️ parc
 | 11  | Escalabilidade 100k → 1M → 10M (explicação)                                                           | 🟨 | `docs/scalability.md` (medições iniciais) |
 | 12  | Dispatcher ponderado 50/30/20 + registro + explicação                                                 | ✅ | ADR-0003, `modules/dispatch/`, `distribution-service.test.ts` |
 | 13  | Concorrência (100 leads simultâneos) + explicação                                                     | ✅ | ADR-0003; `distribution-pipeline.test.ts` (100 HTTP + 4 workers × 10) |
-| 14  | `POST /api/webhooks/callcenter`: localiza, atualiza, registra evento, histórico                       | ⬜     |                                                                       |
-| 15  | Webhook duplicado                                                                                     | 🟨     | ADR-0005                                                              |
-| 16  | Eventos fora de ordem                                                                                 | 🟨     | ADR-0005                                                              |
-| 17  | Segurança do webhook                                                                                  | 🟨     | ADR-0005                                                              |
+| 14  | `POST /api/webhooks/callcenter`: localiza, atualiza, registra evento, histórico                       | ✅ | `modules/webhooks/`, `modules/status/`, `webhook-api.test.ts` |
+| 15  | Webhook duplicado                                                                                     | ✅ | ADR-0005; `UNIQUE(lead_id, dedup_key)`; testes de duplicado e de 15 webhooks concorrentes |
+| 16  | Eventos fora de ordem                                                                                 | ✅ | ADR-0005; `domain/lead-status.ts`; testes stale e invalid_transition |
+| 17  | Segurança do webhook                                                                                  | ✅ | ADR-0005; `webhooks/signature.ts` (HMAC + janela anti-replay); 14 testes unitários + integração |
 | 18  | Dashboard: total, hoje, distribuídos, pendentes, vendas, conversão + tabela                           | ⬜     |                                                                       |
 | 19  | Filtros (período, produto, funil, origem, call center, status) + paginação                            | ⬜     |                                                                       |
 | 20  | Auth com ADMIN e OPERATOR                                                                             | ⬜     | ADR-0006                                                              |
 | 21  | Autorização no backend                                                                                | ⬜     |                                                                       |
 | 22  | Segurança: authn, authz, SQLi, XSS, CSRF, brute force, rate limit, dados sensíveis, input, webhook    | ⬜     | security.md                                                           |
 | 23  | Testes unitários: validação, distribuição, status                                                     | ✅     | `test/unit/` (64 testes)                                              |
-| 23  | Testes de integração: leads, webhook                                                                  | 🟨 | leads ✅; webhook pendente |
+| 23  | Testes de integração: leads, webhook                                                                  | ✅ | `leads-api.test.ts`, `webhook-api.test.ts` |
 | 23  | Teste de concorrência                                                                                 | ✅ | `distribution-service.test.ts`, `distribution-pipeline.test.ts` |
 | 24  | `docker compose up` (web, api, worker, db, redis)                                                     | 🟨 | db, redis, migrate, api, worker; web pendente |
 | 25  | Commits incrementais, artefatos de IA no repo, sem reescrever histórico                               | 🟨     | git log, CLAUDE.md, docs/                                             |

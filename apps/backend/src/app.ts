@@ -14,6 +14,7 @@ import { loggerOptions } from './infra/logger.js';
 import type { Database } from './infra/prisma.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { leadRoutes } from './modules/leads/lead.routes.js';
+import { webhookRoutes } from './modules/webhooks/webhook.routes.js';
 
 export interface AppDependencies {
   readonly config: AppConfig;
@@ -83,6 +84,7 @@ export async function buildApp({ config, db }: AppDependencies) {
 
   await app.register(healthRoutes, { db });
   await app.register(leadRoutes, { db });
+  await app.register(webhookRoutes, { db, secrets: config.CALLCENTER_WEBHOOK_SECRETS });
 
   return app;
 }
