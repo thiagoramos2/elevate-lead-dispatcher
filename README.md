@@ -74,6 +74,13 @@ curl -i http://localhost:3000/api/webhooks/callcenter -H 'content-type: applicat
 Os segredos de demonstração dos call centers B e C seguem o mesmo padrão (`dev-secret-b-…`, `dev-secret-c-…`;
 ver `docker-compose.yml`).
 
+Respostas esperadas ao repetir o exemplo:
+- **mesmo comando, mesmo `TS`** → `"duplicate": true` (evento já recebido, nada muda);
+- **comando gerado de novo** (novo `TS`) com o mesmo status → `"applied": false, "reason": "invalid_transition"`,
+  porque `contacted → contacted` não é uma transição permitida. Troque o status (`qualified`, `sale`…) para avançar;
+- **status com timestamp anterior ao atual** → `"applied": false, "reason": "stale"` (evento fora de ordem, registrado
+  no histórico sem alterar o lead).
+
 ### Escalar workers
 
 ```bash
@@ -84,8 +91,9 @@ A distribuição continua exata com vários workers: a sincronização está no 
 
 ## 2. Como rodar os testes
 
-Pré-requisitos: **Node 24 LTS**, pnpm 10 e Docker (os testes de integração sobem Postgres e Redis reais com
-Testcontainers; não há mock de banco).
+Pré-requisitos: **Node 24 LTS** (≥ 24.11), pnpm 10 e Docker (os testes de integração sobem Postgres e Redis reais
+com Testcontainers; não há mock de banco). Com Node mais antigo, o `pnpm install` para com uma mensagem explicando a
+versão exigida (`engine-strict`). O `install` também gera o client do Prisma (`postinstall`).
 
 ```bash
 pnpm install
@@ -265,8 +273,10 @@ O que ficou de fora ou tem ressalva, por prioridade e tempo:
 - **Testes:** os 4 workers do teste de concorrência rodam num único processo Node (as garantias estão no Postgres e
   valem entre processos, mas multi-processo só foi verificado manualmente com o Compose). Queda abrupta no meio de uma
   transação não é testada. O teste automatizado de "Redis fora" usa injeção de falha; o Redis real parado foi validado
-  manualmente. **Intermitência conhecida:** numa de ~8 execuções completas, um teste do pipeline estourou o timeout
-  (passou em todas as outras); o teste foi instrumentado para apontar a condição exata se repetir. Sem testes de
+  manualmente. **Intermitência conhecida:** em ~2 de ~14 execuções completas da suíte, o teste "ignores reprocessing"
+  estourou o tempo esperando `20 leads distributed` (nunca reproduziu isolado). A causa não foi identificada a
+  tempo; o teste agora anexa ao erro um retrato do estado (leads por status, outbox, jobs por estado, motivo da
+  primeira falha) para a próxima ocorrência ser diagnosticável. Não aumentei o timeout para esconder o problema. Sem testes de
   frontend e sem medição de cobertura.
 - **Números de desempenho** vêm de medições pontuais numa máquina de desenvolvimento; não há teste de carga
   sustentada nem script de benchmark versionado.

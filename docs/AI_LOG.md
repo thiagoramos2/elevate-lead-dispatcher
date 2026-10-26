@@ -121,3 +121,20 @@ Ferramenta: Claude Code (Claude Opus), no VS Code.
   `Secure` configurável em vez do prefixo `__Host-` previsto no plano).
 - **Validado com:** cada afirmação de segurança conferida contra o código e os headers reais (zero SQL `Unsafe`, zero
   `dangerouslySetInnerHTML`, nenhum e-mail nos logs da API após 100 leads).
+
+## Verificação pós-entrega (clone limpo do GitHub)
+
+- **Feita como o avaliador faria:** `git clone` numa pasta vazia, `docker compose up --build` e os comandos do README
+  executados literalmente; depois `pnpm install && pnpm test`.
+- **Encontrado e corrigido:**
+  - `pnpm install && pnpm test` falhava num clone limpo: o client do Prisma (pasta gerada, fora do Git) só era gerado
+    no build/Docker. Na máquina de desenvolvimento funcionava porque tinha sido gerado à mão. Correção: `postinstall:
+    prisma generate`.
+  - Com Node 22, o `pnpm` só avisava sobre a versão e o Vitest morria com um erro obscuro. Correção:
+    `engine-strict=true` (para no `install` com mensagem clara).
+  - Depois de um reinício do Docker, `api`/`worker`/`web` voltavam sozinhos, mas `postgres`/`redis` não (sem política
+    de restart). Correção: `restart: unless-stopped`.
+  - Exemplo de webhook do README, repetido, responde `invalid_transition` (correto, mas confuso): nota adicionada.
+- **Intermitência:** reapareceu (2 em ~14 execuções completas). O diagnóstico novo mostrou que trava em
+  `waitFor("20 leads distributed")`; o teste agora anexa o estado do sistema ao erro. Causa ainda não identificada.
+
