@@ -6,8 +6,8 @@
 import { createDatabase } from '../src/infra/prisma.js';
 import { hashPassword } from '../src/modules/auth/password.js';
 
-const DEMO_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'Admin#Demo2026';
-const DEMO_OPERATOR_PASSWORD = process.env.SEED_OPERATOR_PASSWORD ?? 'Operator#Demo2026';
+const DEMO_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'Elevate-Admin-2026';
+const DEMO_OPERATOR_PASSWORD = process.env.SEED_OPERATOR_PASSWORD ?? 'Elevate-Operator-2026';
 
 const catalog = [
   { slug: 'nutralean', name: 'NutraLean', funnels: ['vsl-01', 'vsl-02', 'quiz-01'] },
