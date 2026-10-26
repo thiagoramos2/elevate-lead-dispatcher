@@ -305,6 +305,8 @@ describe('authentication, authorization and dashboard API', () => {
       expect(await count(`callCenter=${fx.callCenters.b}`)).toBe(3);
       expect(await count(`product=${fx.products.nutralean}`)).toBe(10);
       expect(await count(`product=${fx.products.glucoshield}`)).toBe(0);
+      expect(await count('distribution=distributed')).toBe(10);
+      expect(await count('distribution=failed')).toBe(0);
       const future = new Date(Date.now() + 3600_000).toISOString();
       expect(await count(`from=${encodeURIComponent(future)}`)).toBe(0);
     });

@@ -60,6 +60,11 @@ function filterConditions(filters: LeadFilters, scope: string | null): Prisma.Sq
   if (filters.funnel) conditions.push(Prisma.sql`l.funnel_id = ${filters.funnel}::uuid`);
   if (filters.source) conditions.push(Prisma.sql`l.source = ${filters.source}`);
   if (filters.status) conditions.push(Prisma.sql`l.status = ${filters.status}::lead_status`);
+  if (filters.distribution) {
+    conditions.push(
+      Prisma.sql`l.distribution_status = ${filters.distribution}::distribution_status`,
+    );
+  }
   return conditions;
 }
 

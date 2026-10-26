@@ -10,6 +10,7 @@ export const leadFiltersSchema = z.object({
   source: z.string().trim().toLowerCase().max(64).optional(),
   callCenter: z.uuid().optional(),
   status: leadStatusSchema.optional(),
+  distribution: distributionStatusSchema.optional(),
 });
 export type LeadFilters = z.infer<typeof leadFiltersSchema>;
 
