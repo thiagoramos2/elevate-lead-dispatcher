@@ -54,8 +54,8 @@ services:
     environment:
       DATABASE_URL: postgresql://elevate:elevate@postgres:5432/elevate
       SEED_DEMO_DATA: "true"
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin#Demo2026}
-      SEED_OPERATOR_PASSWORD: ${SEED_OPERATOR_PASSWORD:-Operator#Demo2026}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Elevate-Admin-2026}
+      SEED_OPERATOR_PASSWORD: ${SEED_OPERATOR_PASSWORD:-Elevate-Operator-2026}
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +70,8 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
       # O container web faz proxy de /api, então exatamente um hop de X-Forwarded-For é confiável.
       TRUST_PROXY_HOPS: 1
+      # Demonstração em http://localhost: cookie sem a flag Secure. Atrás de HTTPS, use "true".
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
     ports:
       - "3001:3001"
     depends_on:
@@ -96,6 +98,22 @@ services:
       redis:
         condition: service_healthy
     # Escala horizontal: `docker compose up --scale worker=3`. Seguro por design (ADR-0003).
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/login"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
 volumes:

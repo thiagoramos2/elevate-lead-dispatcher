@@ -12,3 +12,6 @@ apps/backend/src/generated/
 
 # Notas locais de estudo/revisão (não versionadas)
 notes/
+.next/
+next-env.d.ts
+*.tsbuildinfo
