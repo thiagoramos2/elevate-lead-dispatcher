@@ -28,7 +28,9 @@ Ferramenta: Claude Code (Claude Opus), no VS Code.
 - **Delegado:** estrutura do monorepo, schema Prisma, migration inicial, seed, setup de testes com Testcontainers,
   regras puras de domínio (SWRR, máquina de estados, idempotência) e seus testes unitários.
 - **Origem dos itens abaixo:** detectados e corrigidos pela própria IA durante a revisão (SQL gerado, testes, lint).
-  Revisão humana da etapa: _pendente; anotar aqui o que for alterado ou rejeitado_.
+  Revisão humana da etapa: Revisei a estrutura inicial do projeto, a modelagem do banco e as regras principais implementadas nesta etapa. Dei atenção especial à integridade dos dados, à normalização dos leads, à distribuição ponderada e à possibilidade de processar eventos repetidos sem gerar inconsistências.
+  Entendi que o Redis e o BullMQ são responsáveis por organizar o processamento assíncrono, mas que a consistência da distribuição precisa ser garantida no PostgreSQL. Por isso, considero importante manter as regras críticas no banco, com transações, restrições e mecanismos de sincronização, em vez de depender apenas do comportamento dos workers.
+
 - **Revisão do SQL gerado pelo Prisma** (`--create-only` antes de aplicar). Faltavam:
   FK em `lead_events.call_center_id`/`actor_user_id`; garantia de que o funil pertence ao produto
   (resolvida com FK composta `leads(funnel_id, product_id) → funnels(id, product_id)`); `CHECK`s de consistência
@@ -50,7 +52,25 @@ Ferramenta: Claude Code (Claude Opus), no VS Code.
 - **Delegado:** `POST /api/leads` com idempotência, transactional outbox, relay, worker BullMQ, dispatcher com lock no
   Postgres, reconciliação, testes de integração e de concorrência.
 - **Origem dos itens abaixo:** detectados pela IA durante a implementação e a revisão (medições, testes, leitura do
-  código-fonte das dependências). Revisão humana da etapa: _pendente; anotar aqui o que for alterado ou rejeitado_.
+  código-fonte das dependências).
+- **Revisão humana (revisão guiada das etapas 2 e 3):** percorri o código em 5 blocos (modelo de dados, ingestão e
+  idempotência, dispatcher e concorrência, outbox/worker/reconciliação, testes). A IA explicava cada parte e
+  levantava as decisões em aberto; eu decidi:
+  - **Janela de deduplicação:** a primeira versão deduplicava por hash do payload **sem prazo**, então a mesma pessoa
+    voltando dias depois recebia o lead antigo e nada era distribuído. Escolhi limitar ao **dia UTC** (retries viram
+    um lead; retorno em outro dia é lead novo). Implementado com testes; ADR-0004 atualizado.
+  - **Cursor global vs. por produto:** a IA apontou que o cursor global garante 50/30/20 no total, mas não por produto.
+    Mantive o cursor global (o enunciado pede a proporção total; mais simples de operar) e documentei a limitação e o
+    caminho de migração no ADR-0003.
+  - **Leads `failed`:** escolhi adicionar o reprocessamento manual pelo ADMIN (endpoint + botão), em vez de só documentar.
+  - **Mantidos após análise:** affiliate criado automaticamente (risco documentado), status como enum do Postgres,
+    telefone obrigatório em E.164.
+  - **Script de carga multi-processo:** adiado por causa do prazo; registrado como lacuna.
+- **Falha encontrada na revisão:** o handler de falha do worker marcava o lead como `failed` em modo fire-and-forget;
+  com o Postgres fora naquele instante, o lead ficaria `pending` para sempre e, 7 dias depois, seria reenfileirado por
+  engano. A reconciliação passou a tratar jobs `failed`. O teste de regressão foi **comprovado falhando sem a correção**.
+- **Comentários do código:** pedi que todos fossem reescritos em português (identificadores, logs e nomes de testes
+  continuam em inglês). As migrations já aplicadas ficaram como estavam, porque o Prisma valida o checksum.
 - **Hipótese corrigida por medição:** o teste de 100 distribuições concorrentes falhou com
   `Unable to start a transaction in the given time` (o `maxWait` padrão de 2 s do Prisma). A primeira hipótese foi a
   seção crítica longa demais. Encurtá-la (configuração lida antes do lock com checagem otimista por `config_version`,
@@ -69,10 +89,35 @@ Ferramenta: Claude Code (Claude Opus), no VS Code.
   `docker compose up` real com `curl` (201 → 200 replay → 400); Redis parado durante a ingestão (API seguiu com `201`,
   leads distribuídos sozinhos quando o Redis voltou).
 
-<!-- Formato:
-## Etapa N: título
-- Delegado:
-- IA sugeriu / errou:
-- Rejeitei / corrigi porque:
-- Validado com:
--->
+## Etapa 4: webhook, autenticação, autorização e API do dashboard
+
+- **Delegado:** webhook com HMAC, módulo de eventos de status compartilhado entre webhook e operador, sessão, perfis,
+  rate limit, CSRF, listagem keyset, métricas, configuração do dispatcher, reprocessamento de `failed`, testes.
+- **IA errou / corrigido na implementação:**
+  - Listener de erro do Redis registrado depois do `await` de inicialização (um erro na subida ficaria sem listener).
+  - Teste que dependia da ordem das linhas sem `ORDER BY` (falhou uma vez; o Postgres não garante ordem).
+  - **Intermitência:** numa de ~8 execuções completas, um teste do pipeline estourou o timeout; passou em todas as
+    outras e não reproduziu isolado. Em vez de aumentar o timeout, o `waitFor` passou a nomear a condição e a expirar
+    antes do teste, para a próxima ocorrência apontar onde travou. Registrado como limitação.
+- **Decisões:** webhook rejeitado (fora de ordem/transição inválida) responde `200` para o parceiro não reenviar; para
+  o operador humano, a mesma regra responde `422`. Rate limit fail-open (Redis fora não derruba a ingestão).
+- **Validado com:** 162 testes, incluindo os ataques da seção 21 (OPERATOR acessando rota de admin e lead alheio por
+  requisição direta).
+
+## Etapa 5: frontend
+
+- **Delegado:** dashboard Next.js (login, métricas, filtros na URL, paginação, detalhe com histórico, admin do
+  dispatcher), Dockerfile standalone e serviço no Compose.
+- **IA errou / corrigido:** um `as unknown as` para silenciar o compilador (proibido no `CLAUDE.md`), trocado por
+  construção explícita; união de tipos mal resolvida pega pelo typecheck do build.
+- **Bug pego na validação manual:** as senhas de demonstração continham `#`, que o parser de `.env` do Node trata como
+  comentário (a senha gravada virou `"Admin"`). Trocadas por senhas sem `#`.
+- **Validado com:** `docker compose up --build` num projeto Compose novo (volumes vazios): páginas, login, 100 leads
+  simultâneos pelo frontend → 50/30/20 exato, OPERATOR restrito, CSRF, webhook assinado e replay.
+
+## Etapa 6: documentação de entrega
+
+- **Delegado:** README, `security.md`, checklist final, atualização dos ADRs para refletir o implementado (ex.: cookie
+  `Secure` configurável em vez do prefixo `__Host-` previsto no plano).
+- **Validado com:** cada afirmação de segurança conferida contra o código e os headers reais (zero SQL `Unsafe`, zero
+  `dangerouslySetInnerHTML`, nenhum e-mail nos logs da API após 100 leads).
