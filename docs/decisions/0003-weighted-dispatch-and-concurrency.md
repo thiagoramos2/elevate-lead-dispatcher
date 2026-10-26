@@ -41,6 +41,20 @@ Na mesma transação: `SELECT ... FROM dispatcher_state FOR UPDATE`, atualizar p
 combina um cursor com uma configuração que não é a dele. Cada distribuição grava `config_version`, e o cursor é
 gap-free **dentro de cada versão** (coberto por teste de integração com a mudança no meio de uma rajada).
 
+## Escopo do cursor: global, não por produto (decisão do candidato na revisão)
+
+O cursor é **um só para todos os produtos**. Isso garante 50/30/20 **no total**, mas **não por produto**. Num caso
+patológico, com leads chegando alternados NutraLean/GlucoShield, o NutraLean ficaria sempre com as posições ímpares do
+escalonamento (`A C A A B` = 60/20/20) e o GlucoShield com 40/40/20. Com chegadas reais (aleatórias), o desvio se dilui.
+
+| Opção | Proporção | Escala | Decisão |
+|---|---|---|---|
+| **Cursor global** | Exata no total; por produto, só na média | Uma linha = um ponto de serialização | **Escolhida**: o enunciado pede 50/30/20 no total; é mais simples de operar e explicar |
+| Cursor por produto | Exata por produto e no total (±1 por produto) | Uma linha por produto = locks independentes | Melhoria futura: adotar se o negócio exigir justiça de mix por produto (ex.: um produto converte muito mais) ou se o lock global virar gargalo |
+
+A migração para cursor por produto é localizada: `dispatcher_state` passa a ter uma linha por produto e
+`advanceCursor` recebe o `product_id`; o algoritmo e o resto do fluxo não mudam.
+
 ## Alternativas consideradas
 
 | Alternativa                                                  | Por que não                                                                                                                                 |
