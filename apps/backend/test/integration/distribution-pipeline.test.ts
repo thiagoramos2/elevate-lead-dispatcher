@@ -13,6 +13,7 @@ import {
   createDistributionQueue,
   DISTRIBUTION_JOB,
   type DistributionJobData,
+  distributionJobId,
 } from '../../src/modules/dispatch/queue.js';
 import { DistributionReconciler } from '../../src/modules/dispatch/reconciler.js';
 import { buildTestApp, validLead } from './setup/app.js';
@@ -25,13 +26,21 @@ import {
 
 const silent = pino({ level: 'silent' });
 
-async function waitFor(condition: () => Promise<boolean>, timeoutMs = 30_000): Promise<void> {
+/**
+ * Espera uma condição assíncrona. O prazo padrão (20 s) fica abaixo do timeout do teste (30 s)
+ * para que, se travar, o erro diga qual condição não foi atingida em vez de um timeout genérico.
+ */
+async function waitFor(
+  label: string,
+  condition: () => Promise<boolean>,
+  timeoutMs = 20_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await condition()) return;
     await sleep(50);
   }
-  throw new Error(`condition not met within ${timeoutMs}ms`);
+  throw new Error(`waitFor("${label}") not met within ${timeoutMs}ms`);
 }
 
 /**
@@ -101,7 +110,7 @@ describe('distribution pipeline', () => {
     const relay = new OutboxRelay(db, queuePublisher(queue), silent);
     expect(await relay.drain()).toBe(100);
 
-    await waitFor(async () => (await distributedCount()) === 100);
+    await waitFor('100 leads distributed', async () => (await distributedCount()) === 100);
 
     // Nenhum lead perdido, nenhuma distribuição duplicada, consistência referencial.
     expect(await db.lead.count()).toBe(100);
@@ -125,7 +134,7 @@ describe('distribution pipeline', () => {
       await app.inject({ method: 'POST', url: '/api/leads', payload: validLead() });
     startWorkers(2, 5);
     await new OutboxRelay(db, queuePublisher(queue), silent).drain();
-    await waitFor(async () => (await distributedCount()) === 20);
+    await waitFor('20 leads distributed', async () => (await distributedCount()) === 20);
 
     // Simula a entrega duplicada de todos os leads, com ids de job novos.
     const leads = await db.lead.findMany({ select: { id: true } });
@@ -136,7 +145,7 @@ describe('distribution pipeline', () => {
         opts: { jobId: `replay-${l.id}` },
       })),
     );
-    await waitFor(idle);
+    await waitFor('queue idle after replays', idle);
 
     expect(await db.distribution.count()).toBe(20);
     expect((await db.dispatcherState.findUniqueOrThrow({ where: { id: 1 } })).cursor).toBe(20n);
@@ -167,7 +176,7 @@ describe('distribution pipeline', () => {
     await db.$executeRaw`UPDATE outbox_events SET available_at = now()`;
     startWorkers(1, 5);
     expect(await new OutboxRelay(db, queuePublisher(queue), silent).drain()).toBe(5);
-    await waitFor(async () => (await distributedCount()) === 5);
+    await waitFor('5 leads distributed', async () => (await distributedCount()) === 5);
   });
 
   it('publishes each event once even with several relays running concurrently', async () => {
@@ -218,7 +227,7 @@ describe('distribution pipeline', () => {
       { attempts: 3, backoff: { type: 'fixed', delay: 50 } },
     );
 
-    await waitFor(async () => {
+    await waitFor('lead marked failed', async () => {
       const lead = await db.lead.findUniqueOrThrow({ where: { id: leadId } });
       return lead.distributionStatus === 'failed';
     });
@@ -230,7 +239,7 @@ describe('distribution pipeline', () => {
   it('fails a job for an unknown lead immediately, without retries', async () => {
     startWorkers(1, 1);
     await queue.add(DISTRIBUTION_JOB, { leadId: crypto.randomUUID(), outboxEventId: '1' });
-    await waitFor(async () => (await queue.getJobCountByTypes('failed')) === 1);
+    await waitFor('one failed job', async () => (await queue.getJobCountByTypes('failed')) === 1);
     const [failed] = await queue.getFailed();
     expect(failed?.attemptsMade).toBe(1);
   });
@@ -244,13 +253,13 @@ describe('distribution pipeline', () => {
     await db.$executeRaw`UPDATE leads SET created_at = now() - interval '10 minutes'`;
 
     const reconciler = new DistributionReconciler(db, queue, silent, { stuckAfterSeconds: 300 });
-    expect(await reconciler.requeueLostJobs()).toBe(1);
+    expect(await reconciler.reconcileStuckLeads()).toEqual({ requeued: 1, markedFailed: 0 });
     // Idempotente enquanto o evento novo ainda não foi publicado.
-    expect(await reconciler.requeueLostJobs()).toBe(0);
+    expect(await reconciler.reconcileStuckLeads()).toEqual({ requeued: 0, markedFailed: 0 });
 
     startWorkers(1, 1);
     await new OutboxRelay(db, queuePublisher(queue), silent).drain();
-    await waitFor(async () => {
+    await waitFor('lead distributed', async () => {
       const lead = await db.lead.findUniqueOrThrow({ where: { id: leadId } });
       return lead.distributionStatus === 'distributed';
     });
@@ -262,7 +271,41 @@ describe('distribution pipeline', () => {
     await db.$executeRaw`UPDATE leads SET created_at = now() - interval '10 minutes'`;
 
     const reconciler = new DistributionReconciler(db, queue, silent, { stuckAfterSeconds: 300 });
-    expect(await reconciler.requeueLostJobs()).toBe(0);
+    expect(await reconciler.reconcileStuckLeads()).toEqual({ requeued: 0, markedFailed: 0 });
+    expect(await db.outboxEvent.count()).toBe(1);
+  });
+
+  it('marks a lead failed when its job failed but the failure handler could not record it', async () => {
+    const { lead_id: leadId } = (
+      await app.inject({ method: 'POST', url: '/api/leads', payload: validLead() })
+    ).json();
+    await db.callCenter.updateMany({ data: { active: false } });
+    startWorkers(1, 1);
+
+    // Publica com 1 tentativa só, para o job falhar de forma definitiva.
+    const [event] = await db.outboxEvent.findMany();
+    if (!event) throw new Error('no outbox event');
+    await queue.add(
+      DISTRIBUTION_JOB,
+      { leadId, outboxEventId: event.id.toString() },
+      { jobId: distributionJobId(leadId, event.id.toString()), attempts: 1 },
+    );
+    await db.$executeRaw`UPDATE outbox_events SET published_at = now()`;
+    await waitFor('one failed job', async () => (await queue.getJobCountByTypes('failed')) === 1);
+
+    // Simula o handler `failed` não ter conseguido gravar (ex.: Postgres fora naquele instante).
+    await waitFor('lead marked failed', async () => {
+      const lead = await db.lead.findUniqueOrThrow({ where: { id: leadId } });
+      return lead.distributionStatus === 'failed';
+    });
+    await db.$executeRaw`
+      UPDATE leads SET distribution_status = 'pending', created_at = now() - interval '10 minutes'`;
+
+    const reconciler = new DistributionReconciler(db, queue, silent, { stuckAfterSeconds: 300 });
+    expect(await reconciler.reconcileStuckLeads()).toEqual({ requeued: 0, markedFailed: 1 });
+    const lead = await db.lead.findUniqueOrThrow({ where: { id: leadId } });
+    expect(lead.distributionStatus).toBe('failed');
+    // Nada foi reenfileirado: uma falha definitiva não vira retry silencioso.
     expect(await db.outboxEvent.count()).toBe(1);
   });
 });

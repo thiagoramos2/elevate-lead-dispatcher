@@ -39,7 +39,7 @@ const tasks = [
   runPeriodically(
     'reconciler',
     async () => {
-      await reconciler.requeueLostJobs();
+      await reconciler.reconcileStuckLeads();
       await reconciler.purgePublishedOutbox();
       return false;
     },

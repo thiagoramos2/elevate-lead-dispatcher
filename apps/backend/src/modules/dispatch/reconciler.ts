@@ -2,6 +2,7 @@ import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import type { Database } from '../../infra/prisma.js';
 import { DISTRIBUTION_REQUESTED } from '../leads/lead.repository.js';
+import { markDistributionFailed } from './distribution.repository.js';
 import { type DistributionJobData, distributionJobId } from './queue.js';
 
 export interface ReconcilerOptions {
@@ -13,11 +14,14 @@ export interface ReconcilerOptions {
 }
 
 /**
- * Rede de segurança para a única falha que o outbox não enxerga: um job que foi publicado e
- * depois perdido pelo Redis (restart sem persistência, eviction, flush manual). Para cada lead
- * pendente há tempo demais cujo último evento de outbox foi publicado, pergunta ao BullMQ pelo
- * job; se o Redis não o conhece mais, grava um novo evento de outbox e o fluxo normal assume.
- * Jobs em waiting, delayed, active ou failed não são tocados.
+ * Rede de segurança para o que o outbox não enxerga. Para cada lead pendente há tempo demais
+ * cujo último evento de outbox foi publicado, pergunta ao BullMQ pelo job:
+ *  - `unknown`: o Redis perdeu o job (restart sem persistência, eviction, flush manual). Grava um
+ *    novo evento de outbox e o fluxo normal assume.
+ *  - `failed`: o job esgotou as tentativas, mas o handler não conseguiu marcar o lead (ex.: o
+ *    Postgres estava fora no momento). Marca o lead como `failed` agora. Sem isso ele ficaria
+ *    `pending` para sempre e, quando o BullMQ apagasse o job, seria reenfileirado por engano.
+ *  - waiting, delayed, active: trabalho em andamento ou em backlog, não é tocado.
  */
 export class DistributionReconciler {
   private readonly stuckAfterSeconds: number;
@@ -35,8 +39,7 @@ export class DistributionReconciler {
     this.outboxRetentionDays = options.outboxRetentionDays ?? 7;
   }
 
-  /** Retorna quantos leads foram reenfileirados. */
-  async requeueLostJobs(): Promise<number> {
+  async reconcileStuckLeads(): Promise<{ requeued: number; markedFailed: number }> {
     const candidates = await this.db.$queryRaw<{ lead_id: string; outbox_id: bigint }[]>`
       SELECT l.id AS lead_id, o.id AS outbox_id
       FROM leads l
@@ -51,16 +54,23 @@ export class DistributionReconciler {
       LIMIT ${this.batchSize}`;
 
     let requeued = 0;
+    let markedFailed = 0;
     for (const { lead_id: leadId, outbox_id: outboxId } of candidates) {
       const state = await this.queue.getJobState(distributionJobId(leadId, outboxId.toString()));
-      if (state !== 'unknown') continue;
-      await this.db.outboxEvent.create({
-        data: { type: DISTRIBUTION_REQUESTED, aggregateId: leadId, payload: { leadId } },
-      });
-      requeued++;
+      if (state === 'failed') {
+        await markDistributionFailed(this.db, leadId);
+        markedFailed++;
+      } else if (state === 'unknown') {
+        await this.db.outboxEvent.create({
+          data: { type: DISTRIBUTION_REQUESTED, aggregateId: leadId, payload: { leadId } },
+        });
+        requeued++;
+      }
     }
-    if (requeued > 0) this.logger.warn({ requeued }, 're-queued leads whose jobs were lost');
-    return requeued;
+    if (requeued > 0 || markedFailed > 0) {
+      this.logger.warn({ requeued, markedFailed }, 'reconciled stuck pending leads');
+    }
+    return { requeued, markedFailed };
   }
 
   /** Mantém o outbox pequeno: eventos publicados só são necessários numa janela curta de auditoria. */
