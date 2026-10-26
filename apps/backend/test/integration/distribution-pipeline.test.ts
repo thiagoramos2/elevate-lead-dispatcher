@@ -30,6 +30,9 @@ const silent = pino({ level: 'silent' });
  * Espera uma condição assíncrona. O prazo padrão (20 s) fica abaixo do timeout do teste (30 s)
  * para que, se travar, o erro diga qual condição não foi atingida em vez de um timeout genérico.
  */
+/** Retrato do sistema anexado ao erro de timeout (definido no beforeAll, quando há banco e fila). */
+let diagnose: (() => Promise<unknown>) | undefined;
+
 async function waitFor(
   label: string,
   condition: () => Promise<boolean>,
@@ -40,7 +43,8 @@ async function waitFor(
     if (await condition()) return;
     await sleep(50);
   }
-  throw new Error(`waitFor("${label}") not met within ${timeoutMs}ms`);
+  const snapshot = diagnose ? JSON.stringify(await diagnose().catch(String)) : 'n/a';
+  throw new Error(`waitFor("${label}") not met within ${timeoutMs}ms; state: ${snapshot}`);
 }
 
 /**
@@ -72,6 +76,23 @@ describe('distribution pipeline', () => {
     app = await buildTestApp(db);
     await app.listen({ host: '127.0.0.1', port: 0 });
     queue = createDistributionQueue(redisUrl);
+    diagnose = async () => {
+      const [leads, outbox, jobs, failed] = await Promise.all([
+        db.lead.groupBy({ by: ['distributionStatus'], _count: true }),
+        db.outboxEvent.groupBy({ by: ['publishedAt'], _count: true }),
+        queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized', 'completed', 'failed'),
+        queue.getFailed(0, 0),
+      ]);
+      return {
+        leads: leads.map((l) => [l.distributionStatus, l._count]),
+        unpublishedOutbox: outbox
+          .filter((o) => o.publishedAt === null)
+          .reduce((n, o) => n + o._count, 0),
+        jobs,
+        firstFailure: failed[0]?.failedReason ?? null,
+        workers: workers.length,
+      };
+    };
   });
 
   beforeEach(async () => {
